@@ -1,0 +1,48 @@
+{
+  "site": {
+    "name": "Seu Blog",
+    "tagline": "Guias práticos e conteúdo educativo para o seu público.",
+    "baseUrl": "https://seu-dominio.com.br",
+    "blogPath": "/blog",
+    "lang": "pt-BR",
+    "author": "Sua Empresa",
+    "publisher": "Sua Empresa",
+    "logo": "/assets/logo.svg",
+    "favicon": "/assets/favicon-32.png",
+    "defaultOgImage": "/assets/og-default.png",
+    "trackingScript": "/tracking.js",
+    "twitter": "@seu_perfil",
+    "_note": "Altere nome, URLs, identidade visual e autoria para os dados do seu projeto. baseUrl deve ser a origem pública usada nas URLs canônicas."
+  },
+  "products": {
+    "produto-principal": {
+      "name": "Seu Produto Aqui",
+      "price": "R$00,00",
+      "lp": "https://seu-dominio.com.br/produto",
+      "checkout": "https://checkout.seu-dominio.com.br/produto",
+      "pitch": "Explique aqui, em uma frase, qual problema o produto resolve e para quem ele é indicado.",
+      "cta": "Conhecer o produto",
+      "_note": "A chave deste objeto deve ser usada no campo produto do briefing. LP é a página de apresentação; checkout fica separado para não expor o pagamento em links editoriais."
+    },
+    "produto-secundario": {
+      "name": "Outro Produto Seu",
+      "price": "R$00,00",
+      "lp": "https://seu-dominio.com.br/outro-produto",
+      "checkout": "https://checkout.seu-dominio.com.br/outro-produto",
+      "pitch": "Descreva brevemente o benefício principal deste segundo produto.",
+      "cta": "Saiba mais",
+      "_note": "Remova este exemplo se não houver um segundo produto ou substitua-o por uma oferta real do seu projeto."
+    }
+  },
+  "generator": {
+    "provider": "manual",
+    "_providers_supported": ["manual", "claude-api", "codex-cli"],
+    "_note": "manual usa o briefing escrito em content/keywords e não exige credenciais. claude-api deve ler ANTHROPIC_API_KEY somente do ambiente; codex-cli usa uma sessão já autenticada. O padrão manual é seguro e sem custo de API.",
+    "model": "seu-modelo",
+    "apiKeyEnv": "ANTHROPIC_API_KEY"
+  },
+  "analytics": {
+    "cfBeaconToken": "",
+    "_note": "Token opcional do Cloudflare Web Analytics. Deixe vazio no repositório; quando vazio, o gerador omite o beacon sem quebrar o site."
+  }
+}

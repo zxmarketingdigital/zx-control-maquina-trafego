@@ -1,0 +1,39 @@
+{
+  "corte-costura": {
+    "slug": "corte-costura",
+    "wordmark": "CORTE & COSTURA",
+    "badge": "56% OFF · TURMA ABERTA",
+    "promessa": "Aprenda a criar peças sob medida com acabamento profissional.",
+    "items": [
+      {
+        "label": "Módulo 1 — Modelagem e medidas",
+        "price": "R$397",
+        "highlight": true
+      },
+      {
+        "label": "Módulo 2 — Técnicas de corte",
+        "price": "R$297"
+      },
+      {
+        "label": "Módulo 3 — Montagem e acabamento",
+        "price": "R$247"
+      },
+      {
+        "label": "Módulo 4 — Projeto final completo",
+        "price": "R$197"
+      }
+    ],
+    "incluso": "Aulas práticas, exercícios e materiais de apoio dos quatro módulos.",
+    "anchor": "De R$1.138",
+    "parcelado": "12x de R$51,90",
+    "avista": "ou R$497 à vista no Pix",
+    "garantia": "7 dias de garantia",
+    "acesso": "Acesso por 12 meses",
+    "escassez": "Inscrições até 30/09",
+    "cta": "QUERO ME INSCREVER",
+    "checkout": "https://exemplo.com/corte-costura",
+    "rodape": "exemplo.com/corte-costura",
+    "theme": "amber-blue",
+    "bg": "#0A0A0A"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "_comment": "Fila ilustrativa de hub-and-spoke para um nicho fictício de educação financeira. Substitua todos os itens pelos briefings do seu projeto.",
+  "_updated": "AAAA-MM-DD",
+  "keywords": [
+    {
+      "id": "fin-001",
+      "keyword": "consultoria financeira para pequenas empresas",
+      "slug": "consultoria-financeira-pequenas-empresas",
+      "produto": "produto-principal",
+      "tier": "pillar",
+      "volume_mes": 0,
+      "cpc_top_brl": 0.00,
+      "intencao": "comercial",
+      "spoke_of": null,
+      "status": "planned",
+      "_published_at": null
+    },
+    {
+      "id": "fin-002",
+      "keyword": "como organizar fluxo de caixa empresarial",
+      "slug": "organizar-fluxo-de-caixa-empresarial",
+      "produto": "produto-principal",
+      "tier": "cluster",
+      "volume_mes": 0,
+      "cpc_top_brl": 0.00,
+      "intencao": "informacional",
+      "spoke_of": "fin-001",
+      "status": "planned",
+      "_published_at": null
+    },
+    {
+      "id": "fin-003",
+      "keyword": "planejamento financeiro para pequenas empresas",
+      "slug": "planejamento-financeiro-pequenas-empresas",
+      "produto": "produto-principal",
+      "tier": "cluster",
+      "volume_mes": 0,
+      "cpc_top_brl": 0.00,
+      "intencao": "informacional",
+      "spoke_of": "fin-001",
+      "status": "planned",
+      "_published_at": null
+    },
+    {
+      "id": "fin-004",
+      "keyword": "indicadores financeiros para pequenas empresas",
+      "slug": "indicadores-financeiros-pequenas-empresas",
+      "produto": "produto-secundario",
+      "tier": "cluster",
+      "volume_mes": 0,
+      "cpc_top_brl": 0.00,
+      "intencao": "comercial",
+      "spoke_of": "fin-001",
+      "status": "planned",
+      "_published_at": null
+    }
+  ]
+}
