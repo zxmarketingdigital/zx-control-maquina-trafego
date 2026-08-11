@@ -1,0 +1,58 @@
+{
+  "_comment": "Exemplo ilustrativo de fila hub-and-spoke para o nicho fictício de organização financeira de autônomos. Substitua tudo pelos temas do aluno; não publique esta fila como conteúdo real.",
+  "_updated": "2026-01-01T00:00:00.000Z",
+  "keywords": [
+    {
+      "id": "kw-demo-001",
+      "keyword": "organização financeira para autônomos",
+      "slug": "organizacao-financeira-para-autonomos",
+      "produto": "produto-principal",
+      "tier": "pillar",
+      "volume_mes": 1200,
+      "cpc_top_brl": 4.5,
+      "intencao": "informacional",
+      "spoke_of": null,
+      "status": "pending",
+      "_published_at": null
+    },
+    {
+      "id": "kw-demo-002",
+      "keyword": "como separar finanças pessoais e profissionais",
+      "slug": "separar-financas-pessoais-e-profissionais",
+      "produto": "produto-principal",
+      "tier": "cluster",
+      "volume_mes": 700,
+      "cpc_top_brl": 3.2,
+      "intencao": "informacional",
+      "spoke_of": "kw-demo-001",
+      "status": "pending",
+      "_published_at": null
+    },
+    {
+      "id": "kw-demo-003",
+      "keyword": "planilha de fluxo de caixa simples",
+      "slug": "planilha-de-fluxo-de-caixa-simples",
+      "produto": "produto-secundario",
+      "tier": "cluster",
+      "volume_mes": 950,
+      "cpc_top_brl": 2.8,
+      "intencao": "comercial",
+      "spoke_of": "kw-demo-001",
+      "status": "pending",
+      "_published_at": null
+    },
+    {
+      "id": "kw-demo-004",
+      "keyword": "quanto cobrar por um serviço autônomo",
+      "slug": "quanto-cobrar-por-um-servico-autonomo",
+      "produto": "produto-principal",
+      "tier": "cluster",
+      "volume_mes": 500,
+      "cpc_top_brl": 3.9,
+      "intencao": "comercial",
+      "spoke_of": "kw-demo-001",
+      "status": "pending",
+      "_published_at": null
+    }
+  ]
+}
