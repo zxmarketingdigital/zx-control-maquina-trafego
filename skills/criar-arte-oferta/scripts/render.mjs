@@ -1,6 +1,6 @@
 // Renderiza as artes de oferta (quadrado 1:1 + story 9:16) a partir de um data.json.
 // Uso: node render.mjs <dir-do-projeto>
-// Espera <dir>/data.json: { "<chave>": { slug, wordmark, badge, promessa, items[], ... } }
+// Espera <dir>/data.json: { '<chave>': { slug, wordmark, badge, promessa, items[], ... } }
 // Escreve <dir>/<slug>-oferta-quadrado.png (2160x2160) e <dir>/<slug>-oferta-story.png (2160x3840)
 import { chromium } from 'playwright';
 import { readFileSync, existsSync } from 'fs';
@@ -30,7 +30,6 @@ for (const [p, f, out] of jobs) {
   const page = await ctx.newPage();
   await page.addInitScript((d) => { window.__CARD_DATA__ = d; }, data);
   await page.goto('file://' + cardHtml + '?p=' + p + '&f=' + f, { waitUntil: 'load' });
-  // FALHAR ALTO: produto ausente ou items faltando não pode gerar PNG quebrado com status ok.
   try {
     await page.waitForFunction(() => window.__READY__ === true, { timeout: 20000 });
   } catch {

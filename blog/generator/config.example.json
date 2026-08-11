@@ -1,59 +1,48 @@
 {
   "site": {
     "name": "Seu Blog",
-    "tagline": "Conteúdo prático para tomar decisões melhores.",
+    "tagline": "Guias práticos e conteúdo educativo para o seu público.",
     "baseUrl": "https://seu-dominio.com.br",
-    "homeUrl": "https://seu-dominio.com.br",
+    "blogPath": "/blog",
     "lang": "pt-BR",
-    "locale": "pt_BR",
-    "author": "Sua Marca",
-    "publisher": "Sua Marca",
+    "author": "Sua Empresa",
+    "publisher": "Sua Empresa",
     "logo": "/assets/logo.svg",
     "favicon": "/assets/favicon-32.png",
     "defaultOgImage": "/assets/og-default.png",
-    "twitter": "@seu_perfil",
-    "blogPath": "/blog/",
-    "assetsPath": "/assets/",
     "trackingScript": "/tracking.js",
-    "productLabel": "Oferta recomendada",
-    "heroEyebrow": "Biblioteca de conteúdo",
-    "heroTitle": "Ideias práticas para o seu negócio",
-    "heroAccent": "com clareza.",
-    "heroDescription": "Guias objetivos para aprender, comparar opções e colocar boas decisões em prática.",
-    "productShowcaseTitle": "Conheça as ofertas",
-    "searchPlaceholder": "Buscar por tema ou palavra-chave…",
-    "homeLabel": "site principal",
-    "footerText": "Seu Blog — conteúdo prático",
-    "_note": "Substitua os placeholders pelos dados do aluno. baseUrl é a origem pública usada no canonical, sitemap e JSON-LD; logo, favicon, defaultOgImage e trackingScript apontam para arquivos publicados em public/."
+    "twitter": "@seu_perfil",
+    "_note": "Altere nome, URLs, identidade visual e autoria para os dados do seu projeto. baseUrl deve ser a origem pública usada nas URLs canônicas."
   },
   "products": {
     "produto-principal": {
       "name": "Seu Produto Aqui",
-      "price": "Defina o preço",
-      "lp": "https://sua-oferta.exemplo.com.br",
-      "checkout": "https://seu-checkout.exemplo.com.br",
-      "pitch": "Explique em uma frase o problema que sua oferta resolve e para quem ela foi criada.",
-      "cta": "Conhecer a oferta",
-      "_note": "produto é referenciado pelo campo produto do briefing/queue. A LP aparece no CTA; checkout fica no config para outros fluxos e não é usado pelo blog."
+      "price": "R$00,00",
+      "lp": "https://seu-dominio.com.br/produto",
+      "checkout": "https://checkout.seu-dominio.com.br/produto",
+      "pitch": "Explique aqui, em uma frase, qual problema o produto resolve e para quem ele é indicado.",
+      "cta": "Conhecer o produto",
+      "_note": "A chave deste objeto deve ser usada no campo produto do briefing. LP é a página de apresentação; checkout fica separado para não expor o pagamento em links editoriais."
     },
     "produto-secundario": {
-      "name": "Seu Produto Complementar",
-      "price": "Defina o preço",
-      "lp": "https://sua-oferta-complementar.exemplo.com.br",
-      "checkout": "https://seu-checkout-complementar.exemplo.com.br",
-      "pitch": "Descreva uma segunda oferta ou etapa complementar do seu negócio.",
-      "cta": "Ver detalhes"
+      "name": "Outro Produto Seu",
+      "price": "R$00,00",
+      "lp": "https://seu-dominio.com.br/outro-produto",
+      "checkout": "https://checkout.seu-dominio.com.br/outro-produto",
+      "pitch": "Descreva brevemente o benefício principal deste segundo produto.",
+      "cta": "Saiba mais",
+      "_note": "Remova este exemplo se não houver um segundo produto ou substitua-o por uma oferta real do seu projeto."
     }
   },
   "generator": {
     "provider": "manual",
     "_providers_supported": ["manual", "claude-api", "codex-cli"],
-    "_note": "manual usa content/keywords/<slug>.md sem custo ou credencial. Os outros providers são pontos de extensão: chaves devem vir do ambiente e nunca ser embutidas no repositório.",
-    "model": "modelo-opcional",
-    "apiKeyEnv": "CHAVE_DO_PROVIDER"
+    "_note": "manual usa o briefing escrito em content/keywords e não exige credenciais. claude-api deve ler ANTHROPIC_API_KEY somente do ambiente; codex-cli usa uma sessão já autenticada. O padrão manual é seguro e sem custo de API.",
+    "model": "seu-modelo",
+    "apiKeyEnv": "ANTHROPIC_API_KEY"
   },
   "analytics": {
     "cfBeaconToken": "",
-    "_note": "Token opcional do beacon de analytics. Deixe vazio no git e preencha somente no go-live; vazio significa degradação graciosa, sem tag de beacon."
+    "_note": "Token opcional do Cloudflare Web Analytics. Deixe vazio no repositório; quando vazio, o gerador omite o beacon sem quebrar o site."
   }
 }

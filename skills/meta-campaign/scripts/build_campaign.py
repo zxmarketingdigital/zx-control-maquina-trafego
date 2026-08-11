@@ -1,40 +1,35 @@
 #!/usr/bin/env python3
-"""Cria uma campanha Meta pausada a partir da configuração de um produto."""
+"""Cria campanhas Meta pausadas a partir da configuração de um produto."""
 
 import argparse
+import hashlib
 import json
 import mimetypes
+import os
 import re
 import sys
-import uuid
+import subprocess
+import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
-
-GRAPH_VERSION = "v21.0"
-HOME = Path.home()
-CONFIG_DIR = HOME / ".operacao-ia" / "config"
+GRAPH_BASE = "https://graph.facebook.com/v21.0"
+CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
+META_ENV_PATH = CONFIG_DIR / "meta.env"
 PRODUCTS_DIR = CONFIG_DIR / "produtos"
-META_ENV = CONFIG_DIR / "meta.env"
-LEDGER_PATH = HOME / ".operacao-ia" / "logs" / "ads-ledger.json"
-OBJECTIVES = ("LEAD_GENERATION", "CONVERSIONS", "TRAFFIC")
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".webm"}
+LEDGER_PATH = Path.home() / ".operacao-ia" / "logs" / "ads-ledger.json"
+REQUIRED_PRODUCT_FIELDS = ("nome", "preco", "link_checkout", "headline", "descricao", "pixel_id")
 
 
-class ConfigError(Exception):
+class MetaAPIError(RuntimeError):
     pass
 
 
-class MetaAPIError(Exception):
-    pass
-
-
-def read_env_file(path):
+def load_env(path=META_ENV_PATH):
     values = {}
     if not path.exists():
         return values
@@ -47,384 +42,498 @@ def read_env_file(path):
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
+        key = key.strip()
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
-        values[key.strip()] = value
+        values[key] = value
     return values
 
 
-def redact(value, secret=""):
-    text = str(value)
-    if secret:
-        text = text.replace(secret, "[TOKEN REDACTED]")
-    return text[:500]
+def fail(message):
+    raise RuntimeError(message)
 
 
-def graph_url(path):
-    return f"https://graph.facebook.com/{GRAPH_VERSION}{path}"
+def read_product(slug):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug):
+        fail("Slug de produto inválido; use apenas letras minúsculas, números e hífens.")
 
-
-def graph_request(method, path, token, fields=None, multipart=None):
-    fields = dict(fields or {})
-    if method == "GET":
-        fields["access_token"] = token
-        query = urlencode(fields)
-        url = f"{graph_url(path)}?{query}" if query else graph_url(path)
-        request = Request(url, method="GET")
-    elif multipart is not None:
-        boundary = f"----CodexMeta{uuid.uuid4().hex}"
-        body = bytearray()
-        multipart_fields = dict(fields)
-        multipart_fields["access_token"] = token
-        for key, value in multipart_fields.items():
-            body.extend(f"--{boundary}\r\n".encode())
-            body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode())
-            body.extend(str(value).encode())
-            body.extend(b"\r\n")
-        filename, content_type, content = multipart
-        body.extend(f"--{boundary}\r\n".encode())
-        body.extend(
-            f'Content-Disposition: form-data; name="filename"; filename="{filename}"\r\n'
-            f"Content-Type: {content_type}\r\n\r\n".encode()
-        )
-        body.extend(content)
-        body.extend(f"\r\n--{boundary}--\r\n".encode())
-        request = Request(
-            graph_url(path),
-            data=bytes(body),
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-            method="POST",
-        )
-    else:
-        fields["access_token"] = token
-        request = Request(
-            graph_url(path),
-            data=urlencode(fields).encode(),
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
+    products_dir = PRODUCTS_DIR.resolve()
+    path = (PRODUCTS_DIR / f"{slug}.json").resolve()
     try:
-        with urlopen(request, timeout=30) as response:
-            raw = response.read().decode("utf-8", errors="replace")
-    except HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        try:
-            payload = json.loads(raw)
-            error = payload.get("error", {})
-            message = error.get("message") or payload
-        except (ValueError, TypeError):
-            message = raw or exc.reason
-        raise MetaAPIError(f"Graph API HTTP {exc.code}: {redact(message, token)}") from None
-    except (URLError, TimeoutError, OSError) as exc:
-        raise MetaAPIError(f"não foi possível conectar à Graph API: {redact(exc, token)}") from None
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        raise MetaAPIError("a Graph API retornou uma resposta inválida") from None
-    if isinstance(payload, dict) and payload.get("error"):
-        error = payload["error"]
-        message = error.get("message", "erro não especificado") if isinstance(error, dict) else error
-        raise MetaAPIError(f"a Graph API recusou a operação: {redact(message, token)}") from None
-    return payload
+        path.relative_to(products_dir)
+    except ValueError:
+        fail("O caminho da configuração do produto está fora do diretório de produtos esperado.")
 
-
-def load_product(slug):
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", slug):
-        raise ConfigError("o slug do produto contém caracteres inválidos")
-    path = PRODUCTS_DIR / f"{slug}.json"
     if not path.exists():
-        raise ConfigError(
-            f"produto '{slug}' não cadastrado em ~/.operacao-ia/config/produtos/{slug}.json; "
-            "cadastre o produto primeiro"
+        fail(
+            f"Produto '{slug}' não encontrado em {path}. "
+            "Cadastre o produto primeiro nessa pasta, com nome, preço, link_checkout, "
+            "headline, descricao e pixel_id."
         )
     try:
         product = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ConfigError(f"não foi possível ler a configuração do produto: {exc}") from None
+        fail(f"Não foi possível ler a configuração do produto '{slug}': {exc}")
     if not isinstance(product, dict):
-        raise ConfigError("a configuração do produto precisa ser um objeto JSON")
-    required = ("nome", "preco", "link_checkout", "headline", "descricao", "pixel_id")
-    missing = [key for key in required if key not in product]
+        fail(f"A configuração do produto '{slug}' precisa ser um objeto JSON.")
+    missing = [field for field in REQUIRED_PRODUCT_FIELDS if not product.get(field)]
     if missing:
-        raise ConfigError(f"configuração do produto incompleta; faltam: {', '.join(missing)}")
-    link = str(product["link_checkout"]).strip()
-    if urlsplit(link).scheme not in {"http", "https"} or not urlsplit(link).netloc:
-        raise ConfigError("link_checkout precisa ser uma URL HTTP ou HTTPS válida")
-    if not str(product["pixel_id"]).strip():
-        raise ConfigError("pixel_id do produto não pode ficar vazio")
+        fail(f"A configuração do produto '{slug}' não contém: {', '.join(missing)}.")
     return product
 
 
-def normalize_account(account):
-    account = (account or "").strip()
-    if account.startswith("act_"):
-        account = account[4:]
-    if not account or not account.isdigit():
-        raise ConfigError("informe uma conta Meta válida em --conta ou META_AD_ACCOUNT_ID")
-    return account
-
-
-def money_to_cents(value):
+def parse_budget(value):
     try:
         amount = Decimal(str(value).replace(",", "."))
+        if not amount.is_finite() or amount <= 0:
+            raise InvalidOperation
+        cents = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
-        raise ConfigError("--budget precisa ser um valor diário em reais") from None
-    if not amount.is_finite() or amount <= 0:
-        raise ConfigError("--budget precisa ser maior que zero")
-    return int((amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        fail("--budget precisa ser um valor diário positivo em reais, por exemplo 25,90.")
+    if cents < 1:
+        fail("--budget precisa resultar em pelo menos R$ 0,01.")
+    return str(int(cents))
+
+
+def validate_link(link):
+    parsed = urlsplit(str(link))
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        fail("O link_checkout do produto precisa ser uma URL HTTP ou HTTPS válida.")
 
 
 def tracked_link(link, slug, run_stamp, ad_number):
-    parts = urlsplit(link)
-    params = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
-              if key not in {"utm_source", "utm_medium", "utm_campaign", "utm_content"}]
-    params.extend(
-        [
-            ("utm_source", "meta"),
-            ("utm_medium", "paid_social"),
-            ("utm_campaign", f"{slug}-{run_stamp}"),
-            ("utm_content", f"{slug}-{run_stamp}-ad{ad_number}"),
-        ]
-    )
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
+    parsed = urlsplit(str(link))
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("utm_content", f"{slug}-{run_stamp}-ad{ad_number}"))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
-def objective_settings(objective):
-    return {
-        "LEAD_GENERATION": ("LEAD_GENERATION", "LEAD"),
-        "CONVERSIONS": ("OFFSITE_CONVERSIONS", "PURCHASE"),
-        "TRAFFIC": ("LINK_CLICKS", "PURCHASE"),
-    }[objective]
+def account_id(value):
+    account = str(value or "").strip()
+    if account.startswith("act_"):
+        account = account[4:]
+    if not account or not account.isdigit():
+        fail("ID de conta inválido. Informe --conta com o ID numérico da conta Meta ou configure META_AD_ACCOUNT_ID.")
+    return account
 
 
-def creative_kind(path):
-    suffix = Path(path).suffix.lower()
-    if suffix in IMAGE_EXTENSIONS:
-        return "image"
-    if suffix in VIDEO_EXTENSIONS:
-        return "video"
-    raise ConfigError(f"formato de criativo não suportado: {path}")
+def safe_message(message, token):
+    text = str(message)
+    if token:
+        text = text.replace(token, "[TOKEN OCULTO]")
+    return text
 
 
-def targeting_payload():
-    return {
-        "geo_locations": {"countries": ["BR"]},
-        "age_min": 18,
-        "age_max": 65,
-    }
+def decode_response(raw):
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text[:500]}
 
 
-def payload_plan(args, product, account, creatives, budget_cents, run_stamp):
-    optimization_goal, event = objective_settings(args.objetivo)
-    campaign_name = f"{product['nome']} | {args.objetivo} | {run_stamp}"
-    campaign = {
-        "name": campaign_name,
-        "objective": args.objetivo,
-        "status": "PAUSED",
-        "special_ad_categories": [],
-    }
-    adset = {
-        "name": f"{product['nome']} | conjunto | {run_stamp}",
-        "campaign_id": "<campaign_id> pós-criação",
-        "daily_budget": budget_cents,
-        "billing_event": "IMPRESSIONS",
-        "optimization_goal": optimization_goal,
-        "targeting": targeting_payload(),
-        "promoted_object": {"pixel_id": str(product["pixel_id"]), "custom_event_type": event},
-        "status": "PAUSED",
-    }
-    ads = []
-    for number, path in enumerate(creatives, 1):
-        link = tracked_link(product["link_checkout"], args.produto, run_stamp, number)
-        kind = creative_kind(path)
-        if kind == "image":
-            creative = {
-                "name": f"{product['nome']} | criativo {number}",
-                "object_story_spec": {
-                    "link_data": {
-                        "link": link,
-                        "message": str(product["descricao"]),
-                        "name": str(product["headline"]),
-                        "description": str(product["descricao"]),
-                        "image_hash": "<hash do upload>",
-                        "call_to_action": {"type": "LEARN_MORE", "value": {"link": link}},
-                    }
-                },
-            }
-            upload = {"endpoint": f"/act_{account}/adimages", "arquivo": path}
-        else:
-            creative = {
-                "name": f"{product['nome']} | criativo {number}",
-                "object_story_spec": {
-                    "video_data": {
-                        "video_id": "<id do upload>",
-                        "message": str(product["descricao"]),
-                        "title": str(product["headline"]),
-                        "link_description": str(product["descricao"]),
-                        "call_to_action": {"type": "LEARN_MORE", "value": {"link": link}},
-                    }
-                },
-            }
-            upload = {"endpoint": f"/act_{account}/advideos", "arquivo": path}
-        ads.append(
-            {
-                "criativo": path,
-                "tracking_link": link,
-                "upload": upload,
-                "creative_payload": creative,
-                "ad_payload": {
-                    "name": f"{product['nome']} | anúncio {number}",
-                    "adset_id": "<adset_id pós-criação>",
-                    "creative": {"creative_id": "<creative_id pós-criação>"},
-                    "status": "PAUSED",
-                },
-            }
-        )
-    return {"campaign": campaign, "adset": adset, "ads": ads}
-
-
-def upload_creative(path, account, token, kind):
-    content = Path(path).read_bytes()
-    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    endpoint = f"/act_{account}/adimages" if kind == "image" else f"/act_{account}/advideos"
-    response = graph_request("POST", endpoint, token, multipart=(Path(path).name, content_type, content))
-    if kind == "image":
-        images = response.get("images", {}) if isinstance(response, dict) else {}
-        first = next(iter(images.values()), {}) if isinstance(images, dict) else {}
-        asset_id = first.get("hash") if isinstance(first, dict) else None
+def api_error(payload, status=None, token=None):
+    if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+        error = payload["error"]
+        message = error.get("message", "erro sem mensagem")
+        code = error.get("code")
+        suffix = f" (código {code})" if code is not None else ""
+        return MetaAPIError(f"Meta Graph API recusou a operação{suffix}: {safe_message(message, token)}")
+    status_text = f" (HTTP {status})" if status else ""
+    if isinstance(payload, dict) and payload.get("raw"):
+        detail = payload["raw"]
     else:
-        asset_id = response.get("id") if isinstance(response, dict) else None
-    if not asset_id:
-        raise MetaAPIError(f"a Graph API não retornou o identificador do criativo {path}")
-    return asset_id
+        detail = "resposta inválida ou vazia"
+    return MetaAPIError(f"Meta Graph API retornou erro{status_text}: {safe_message(detail, token)}")
 
 
-def create_campaign(args, product, account, token, creatives, budget_cents, run_stamp):
-    plan = payload_plan(args, product, account, creatives, budget_cents, run_stamp)
-    campaign_response = graph_request("POST", f"/act_{account}/campaigns", token, plan["campaign"])
-    campaign_id = campaign_response.get("id") if isinstance(campaign_response, dict) else None
-    if not campaign_id:
-        raise MetaAPIError("a Graph API não retornou o ID da campanha")
-
-    adset_fields = dict(plan["adset"])
-    adset_fields["campaign_id"] = campaign_id
-    adset_fields["targeting"] = json.dumps(adset_fields["targeting"], separators=(",", ":"))
-    adset_fields["promoted_object"] = json.dumps(adset_fields["promoted_object"], separators=(",", ":"))
-    adset_response = graph_request("POST", f"/act_{account}/adsets", token, adset_fields)
-    adset_id = adset_response.get("id") if isinstance(adset_response, dict) else None
-    if not adset_id:
-        raise MetaAPIError("a Graph API não retornou o ID do conjunto de anúncios")
-
-    ledger_rows = []
-    for number, item in enumerate(plan["ads"], 1):
-        kind = creative_kind(item["criativo"])
-        asset_id = upload_creative(item["criativo"], account, token, kind)
-        creative_fields = dict(item["creative_payload"])
-        story = dict(creative_fields["object_story_spec"])
-        if kind == "image":
-            link_data = dict(story["link_data"])
-            link_data["image_hash"] = asset_id
-            story["link_data"] = link_data
+def graph_post(endpoint, payload, token, timeout=60):
+    fields = {}
+    for key, value in payload.items():
+        if isinstance(value, (dict, list)):
+            fields[key] = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         else:
-            video_data = dict(story["video_data"])
-            video_data["video_id"] = asset_id
-            story["video_data"] = video_data
-        creative_fields["object_story_spec"] = json.dumps(story, separators=(",", ":"))
-        creative_response = graph_request("POST", f"/act_{account}/adcreatives", token, creative_fields)
-        creative_id = creative_response.get("id") if isinstance(creative_response, dict) else None
-        if not creative_id:
-            raise MetaAPIError(f"a Graph API não retornou o creative_id do anúncio {number}")
-        ad_fields = {
-            "name": item["ad_payload"]["name"],
-            "adset_id": adset_id,
-            "creative": json.dumps({"creative_id": creative_id}, separators=(",", ":")),
-            "status": "PAUSED",
-        }
-        ad_response = graph_request("POST", f"/act_{account}/ads", token, ad_fields)
-        ad_id = ad_response.get("id") if isinstance(ad_response, dict) else None
-        if not ad_id:
-            raise MetaAPIError(f"a Graph API não retornou o ad_id do anúncio {number}")
-        ledger_rows.append(
-            {
-                "criativo": item["criativo"],
-                "ad_id": ad_id,
-                "adset_id": adset_id,
-                "campaign_id": campaign_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+            fields[key] = str(value)
+    request = Request(
+        GRAPH_BASE + endpoint,
+        data=urlencode(fields).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "operacao-ia-meta-campaign/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            body = decode_response(response.read())
+            status = getattr(response, "status", 200)
+    except HTTPError as exc:
+        body = decode_response(exc.read())
+        raise api_error(body, exc.code, token) from None
+    except (URLError, TimeoutError, OSError) as exc:
+        raise MetaAPIError(f"Não foi possível conectar à Meta Graph API: {safe_message(exc, token)}") from None
+    if not isinstance(body, dict) or body.get("error"):
+        raise api_error(body, status, token)
+    return body
+
+
+def multipart_post(endpoint, file_path, token):
+    content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    boundary = f"----operacaoia{int(time.time() * 1000000)}"
+    filename = file_path.name
+    try:
+        content = file_path.read_bytes()
+    except OSError as exc:
+        fail(f"Não foi possível ler o criativo '{file_path}': {exc}")
+    parts = [
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="source"; filename="{filename}"\r\n'.encode(),
+        f"Content-Type: {content_type}\r\n\r\n".encode(),
+        content,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ]
+    request = Request(
+        GRAPH_BASE + endpoint,
+        data=b"".join(parts),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "operacao-ia-meta-campaign/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=120) as response:
+            body = decode_response(response.read())
+            status = getattr(response, "status", 200)
+    except HTTPError as exc:
+        body = decode_response(exc.read())
+        raise api_error(body, exc.code, token) from None
+    except (URLError, TimeoutError, OSError) as exc:
+        raise MetaAPIError(f"Não foi possível enviar o criativo à Meta: {safe_message(exc, token)}") from None
+    if not isinstance(body, dict) or body.get("error"):
+        raise api_error(body, status, token)
+    return body
+
+
+def media_type(path):
+    guessed = mimetypes.guess_type(str(path))[0] or ""
+    if guessed.startswith("video/") or path.suffix.lower() in {".mp4", ".mov", ".m4v", ".avi", ".webm"}:
+        return "video"
+    if guessed.startswith("image/") or path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        return "image"
+    fail(f"Tipo de criativo não reconhecido: '{path}'. Use uma imagem ou vídeo aprovado.")
+
+
+def image_hash(uploaded):
+    images = uploaded.get("images")
+    if isinstance(images, dict):
+        for item in images.values():
+            if isinstance(item, dict) and item.get("hash"):
+                return item["hash"]
+    if uploaded.get("hash"):
+        return uploaded["hash"]
+    fail("A Meta não retornou o hash da imagem enviada.")
+
+
+def video_id(uploaded):
+    value = uploaded.get("id") or uploaded.get("video_id")
+    if value:
+        return value
+    fail("A Meta não retornou o ID do vídeo enviado.")
+
+
+def story_spec(product, tracking_url, kind, media_value, page_id=None):
+    if kind == "image":
+        spec = {
+            "link_data": {
+                "image_hash": media_value,
+                "link": tracking_url,
+                "message": str(product["descricao"]),
+                "name": str(product["headline"]),
+                "description": str(product["descricao"]),
+                "call_to_action": {"type": "LEARN_MORE", "value": {"link": tracking_url}},
             }
-        )
-    return campaign_id, adset_id, ledger_rows
+        }
+    else:
+        spec = {
+            "video_data": {
+                "video_id": media_value,
+                "message": str(product["descricao"]),
+                "title": str(product["headline"]),
+                "link_description": str(product["descricao"]),
+                "call_to_action": {"type": "LEARN_MORE", "value": {"link": tracking_url}},
+            }
+        }
+    if page_id:
+        spec["page_id"] = page_id
+    return spec
 
 
-def append_ledger(rows):
+def make_ledger_entry(creative, ad_id, adset_id, campaign_id, timestamp, campaign_key=None):
+    entry = {
+        "criativo": str(creative),
+        "ad_id": str(ad_id),
+        "adset_id": str(adset_id),
+        "campaign_id": str(campaign_id),
+        "timestamp": timestamp,
+    }
+    if campaign_key:
+        entry["campaign_key"] = campaign_key
+    return entry
+
+
+def campaign_key(product_slug, creatives, budget_cents):
+    payload = {
+        "produto": product_slug,
+        "criativos": sorted(str(creative) for creative in creatives),
+        "budget": budget_cents,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def existing_campaign(campaign_key_value):
+    if not LEDGER_PATH.exists():
+        return None
+    try:
+        current = json.loads(LEDGER_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Não foi possível ler o ledger existente {LEDGER_PATH}: {exc}")
+    if not isinstance(current, list):
+        fail(f"O ledger {LEDGER_PATH} precisa conter uma lista JSON.")
+    for entry in current:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("campaign_key") == campaign_key_value and entry.get("campaign_id"):
+            return entry
+    return None
+
+
+def append_ledger(entries):
     LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
     if LEDGER_PATH.exists():
         try:
-            ledger = json.loads(LEDGER_PATH.read_text(encoding="utf-8"))
+            current = json.loads(LEDGER_PATH.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ConfigError(f"não foi possível ler o ledger existente: {exc}") from None
-        if not isinstance(ledger, list):
-            raise ConfigError("o ledger existente precisa ser uma lista JSON")
+            fail(f"Não foi possível ler o ledger existente {LEDGER_PATH}: {exc}")
+        if not isinstance(current, list):
+            fail(f"O ledger {LEDGER_PATH} precisa conter uma lista JSON.")
     else:
-        ledger = []
-    ledger.extend(rows)
-    LEDGER_PATH.write_text(json.dumps(ledger, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        current = []
+    current.extend(entries)
+    temporary = LEDGER_PATH.with_name(LEDGER_PATH.name + ".tmp")
+    try:
+        temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(LEDGER_PATH)
+    except OSError as exc:
+        fail(f"Não foi possível gravar o ledger {LEDGER_PATH}: {exc}")
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Cria campanha Meta pausada com tracking por anúncio")
-    parser.add_argument("--produto", required=True)
-    parser.add_argument("--criativo", action="append", required=True)
-    parser.add_argument("--budget", required=True)
-    parser.add_argument("--objetivo", choices=OBJECTIVES, default="LEAD_GENERATION")
-    parser.add_argument("--conta")
-    parser.add_argument("--dry-run", action="store_true")
-    return parser.parse_args()
+def build_parser():
+    parser = argparse.ArgumentParser(description="Cria campanha Meta pausada com rastreamento por anúncio.")
+    parser.add_argument("--produto", required=True, help="Slug do produto cadastrado")
+    parser.add_argument("--criativo", required=True, action="append", help="Imagem ou vídeo aprovado; pode repetir")
+    parser.add_argument("--budget", required=True, help="Orçamento diário em reais")
+    parser.add_argument("--objetivo", default="LEAD_GENERATION", choices=("LEAD_GENERATION", "CONVERSIONS", "TRAFFIC"))
+    parser.add_argument("--conta", help="ID numérico da conta de anúncios")
+    parser.add_argument("--dry-run", action="store_true", help="Exibe os payloads sem chamar a API")
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Pula a checagem de tracking; desaconselhado, use apenas em emergência",
+    )
+    parser.add_argument(
+        "--forcar",
+        action="store_true",
+        help="Cria mesmo se já houver uma campanha equivalente no ledger",
+    )
+    return parser
 
 
 def main():
-    args = parse_args()
-    env = read_env_file(META_ENV)
-    product = load_product(args.produto)
-    account = normalize_account(args.conta or env.get("META_AD_ACCOUNT_ID"))
-    budget_cents = money_to_cents(args.budget)
-    creatives = []
-    for raw_path in args.criativo:
-        path = Path(raw_path).expanduser()
-        if not path.is_file():
-            raise ConfigError(f"criativo não encontrado: {raw_path}")
-        creative_kind(path)
-        creatives.append(str(path))
+    args = build_parser().parse_args()
+    product = read_product(args.produto)
+    validate_link(product["link_checkout"])
+    budget_cents = parse_budget(args.budget)
+    env = load_env()
+    account = account_id(args.conta or env.get("META_AD_ACCOUNT_ID"))
+    token = env.get("META_ACCESS_TOKEN", "").strip()
+    if not args.dry_run and not token:
+        fail(f"META_ACCESS_TOKEN não encontrado em {META_ENV_PATH}.")
 
-    run_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-    plan = payload_plan(args, product, account, creatives, budget_cents, run_stamp)
+    creatives = [Path(item).expanduser() for item in args.criativo]
+    for creative in creatives:
+        if not creative.is_file():
+            fail(f"Criativo não encontrado: {creative}")
+        media_type(creative)
+
+    now = datetime.now(timezone.utc)
+    timestamp = now.isoformat()
+    run_stamp = now.strftime("%Y%m%d%H%M%S")
+    campaign_name = f"{product['nome']} | {args.produto} | {run_stamp}"
+    adset_name = f"Conjunto | {args.produto} | {run_stamp}"
+    account_endpoint = f"/act_{account}"
+    objective_api = {
+        "LEAD_GENERATION": "OUTCOME_LEADS",
+        "CONVERSIONS": "OUTCOME_SALES",
+        "TRAFFIC": "OUTCOME_TRAFFIC",
+    }[args.objetivo]
+    optimization = {
+        "LEAD_GENERATION": "LEAD_GENERATION",
+        "CONVERSIONS": "OFFSITE_CONVERSIONS",
+        "TRAFFIC": "LINK_CLICKS",
+    }[args.objetivo]
+    event_type = "LEAD" if args.objetivo == "LEAD_GENERATION" else "PURCHASE"
+    page_id = env.get("META_PAGE_ID", "").strip() or None
+
+    campaign_payload = {
+        "name": campaign_name,
+        "objective": objective_api,
+        "status": "PAUSED",
+        "special_ad_categories": [],
+    }
+    adset_payload = {
+        "name": adset_name,
+        "campaign_id": "<campaign_id>",
+        "daily_budget": budget_cents,
+        "billing_event": "IMPRESSIONS",
+        "optimization_goal": optimization,
+        "promoted_object": {"pixel_id": str(product["pixel_id"]), "custom_event_type": event_type},
+        "targeting": {"geo_locations": {"countries": ["BR"]}},
+        "status": "PAUSED",
+    }
+
+    planned_ads = []
+    for number, creative in enumerate(creatives, start=1):
+        kind = media_type(creative)
+        tracking_url = tracked_link(product["link_checkout"], args.produto, run_stamp, number)
+        planned_ads.append(
+            {
+                "number": number,
+                "path": creative,
+                "kind": kind,
+                "tracking_url": tracking_url,
+                "creative_name": f"{args.produto} | {run_stamp} | ad{number}",
+            }
+        )
+
+    key = campaign_key(args.produto, args.criativo, budget_cents)
+    if not args.dry_run and not args.forcar:
+        previous = existing_campaign(key)
+        if previous:
+            print(
+                f"já existe uma campanha equivalente (ID {previous['campaign_id']}), "
+                f"criada em {previous.get('timestamp', 'data desconhecida')} — "
+                "use --forcar para criar mesmo assim",
+                file=sys.stderr,
+            )
+            return 1
+
+    if not args.dry_run and not args.skip_preflight:
+        preflight_path = (Path(__file__).resolve().parent / "preflight_guardian.py").resolve()
+        preflight_result = subprocess.run(
+            [sys.executable, str(preflight_path), "--pixel", str(product["pixel_id"])],
+            check=False,
+        )
+        if preflight_result.returncode != 0:
+            print(
+                "preflight de tracking falhou — corrija antes de subir campanha",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
     if args.dry_run:
-        print("DRY-RUN: nenhuma chamada foi enviada à Graph API e nenhum ledger foi alterado.")
-        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        preview = {
+            "dry_run": True,
+            "account": account,
+            "campaign": {"endpoint": f"{account_endpoint}/campaigns", "payload": campaign_payload},
+            "adset": {"endpoint": f"{account_endpoint}/adsets", "payload": adset_payload},
+            "ads": [],
+        }
+        for planned in planned_ads:
+            story = story_spec(product, planned["tracking_url"], planned["kind"], "<media_id_or_hash>", page_id)
+            preview["ads"].append(
+                {
+                    "media_upload": {
+                        "endpoint": f"{account_endpoint}/{'advideos' if planned['kind'] == 'video' else 'adimages'}",
+                        "filename": str(planned["path"]),
+                    },
+                    "creative": {
+                        "endpoint": f"{account_endpoint}/adcreatives",
+                        "payload": {"name": planned["creative_name"], "object_story_spec": story},
+                    },
+                    "ad": {
+                        "endpoint": f"{account_endpoint}/ads",
+                        "payload": {
+                            "name": planned["creative_name"],
+                            "adset_id": "<adset_id>",
+                            "creative": {"creative_id": "<creative_id>"},
+                            "status": "PAUSED",
+                        },
+                    },
+                    "tracking_url": planned["tracking_url"],
+                }
+            )
+        print(json.dumps(preview, ensure_ascii=False, indent=2))
         return 0
 
-    token = env.get("META_ACCESS_TOKEN", "").strip()
-    if not token:
-        raise ConfigError("META_ACCESS_TOKEN não encontrado em ~/.operacao-ia/config/meta.env")
-    campaign_id, adset_id, rows = create_campaign(
-        args, product, account, token, creatives, budget_cents, run_stamp
-    )
-    append_ledger(rows)
-    print("Campanha criada com status PAUSED.")
-    print(f"Campanha: {campaign_id}")
-    print(f"Conjunto: {adset_id}")
-    print(f"Anúncios criados: {len(rows)}")
-    print(f"Ads Manager: https://business.facebook.com/adsmanager/manage/campaigns?act={account}")
+    campaign_response = graph_post(f"{account_endpoint}/campaigns", campaign_payload, token)
+    campaign_id = campaign_response.get("id")
+    if not campaign_id:
+        fail("A Meta não retornou o ID da campanha criada.")
+
+    adset_payload["campaign_id"] = campaign_id
+    adset_response = graph_post(f"{account_endpoint}/adsets", adset_payload, token)
+    adset_id = adset_response.get("id")
+    if not adset_id:
+        fail("A Meta não retornou o ID do conjunto criado.")
+
+    entries = []
+    for planned in planned_ads:
+        upload_endpoint = f"{account_endpoint}/{'advideos' if planned['kind'] == 'video' else 'adimages'}"
+        uploaded = multipart_post(upload_endpoint, planned["path"], token)
+        media_value = video_id(uploaded) if planned["kind"] == "video" else image_hash(uploaded)
+        creative_payload = {
+            "name": planned["creative_name"],
+            "object_story_spec": story_spec(product, planned["tracking_url"], planned["kind"], media_value, page_id),
+        }
+        creative_response = graph_post(f"{account_endpoint}/adcreatives", creative_payload, token)
+        creative_id = creative_response.get("id")
+        if not creative_id:
+            fail("A Meta não retornou o ID do criativo criado.")
+        ad_payload = {
+            "name": planned["creative_name"],
+            "adset_id": adset_id,
+            "creative": {"creative_id": creative_id},
+            "status": "PAUSED",
+        }
+        ad_response = graph_post(f"{account_endpoint}/ads", ad_payload, token)
+        ad_id = ad_response.get("id")
+        if not ad_id:
+            fail("A Meta não retornou o ID do anúncio criado.")
+        entry = make_ledger_entry(planned["path"], ad_id, adset_id, campaign_id, timestamp, key)
+        append_ledger([entry])
+        entries.append(entry)
+
+    print(f"Campanha criada (PAUSED): {campaign_id}")
+    print(f"Conjunto criado (PAUSED): {adset_id}")
+    for entry in entries:
+        print(f"Anúncio criado (PAUSED): {entry['ad_id']} — criativo {entry['criativo']}")
+    print(f"Revise no Ads Manager antes de ativar: https://business.facebook.com/adsmanager/manage/campaigns?act={account}")
     return 0
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (ConfigError, MetaAPIError) as exc:
-        print(f"ERRO: {exc}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("Operação interrompida.", file=sys.stderr)
         sys.exit(1)
-    except Exception:
-        print("ERRO: falha inesperada ao preparar a campanha; verifique a configuração e tente novamente.", file=sys.stderr)
+    except Exception as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
         sys.exit(1)

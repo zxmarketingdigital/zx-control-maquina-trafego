@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- LaunchAgent: com.setup15.blog-daily
+       Roda daily_publish.js uma vez por dia às 08:00 (horário local).
+       INSTALAÇÃO: o setup substitui {BLOG_DIR} (caminho real de blog/ dentro do repo
+       clonado) e {NODE_BIN}, copia este arquivo para
+       ~/Library/LaunchAgents/ e executa launchctl unload/load.
+       DESINSTALAR:
+         launchctl unload ~/Library/LaunchAgents/com.setup15.blog-daily.plist
+       KILLSWITCH (pausa sem desinstalar):
+         touch ~/.operacao-ia/config/.blog-killswitch
+       Remova o arquivo do killswitch para retomar a publicação.
+       -->
+  <key>Label</key>
+  <string>com.setup15.blog-daily</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{NODE_BIN}</string>
+    <string>{BLOG_DIR}/generator/daily_publish.js</string>
+  </array>
+
+  <!-- Roda às 08:00 todos os dias -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>{BLOG_DIR}/logs/blog-daily.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>{BLOG_DIR}/logs/blog-daily-err.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>{BLOG_DIR}</string>
+
+  <!-- Não iniciar em boot se perdeu o horário — esperar o próximo dia -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- O executável de Node é resolvido pelo setup e também fica explícito acima. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <!-- GEMINI_API_KEY: não embutir aqui; o daily_publish.js lê o ambiente seguro. -->
+  </dict>
+</dict>
+</plist>

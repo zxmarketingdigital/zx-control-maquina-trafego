@@ -1,141 +1,150 @@
 ---
 name: criar-arte-oferta
-description: "Gera a arte de oferta de qualquer produto no formato validado (ancoragem de valor + checklist com valor de cada item + valor original riscado + parcelado dominante + garantia/prazo + escassez + CTA), em 2 formatos de imagem (quadrado 1:1 2160x2160 e story 9:16 2160x3840), mais texto pronto em Markdown para WhatsApp e e-mail — tudo a partir de um data.json único. Use quando o usuário pedir arte de oferta, banner de oferta, arte com preço, arte de ancoragem, criativo de oferta, arte para comercial, banner de checkout, arte para LP com preço, oferta visual ou texto de oferta para WhatsApp/e-mail."
+description: 'Gera uma arte de oferta com ancoragem de valor, checklist de entregas, preço parcelado em destaque, garantia, escassez e CTA, em formatos quadrado e story, além do texto pronto para WhatsApp e e-mail a partir de um data.json único.'
 model: sonnet
 effort: medium
 ---
 
-# /criar-arte-oferta — peça-mãe da oferta em imagem + texto
+# /criar-arte-oferta — peça de oferta em imagem + texto
 
-Esta skill produz a peça canônica de ancoragem de valor para LP, checkout, WhatsApp,
-e-mail e anúncios a partir de uma única fonte de verdade: `data.json`. O motor
-HTML→PNG é determinístico e é o caminho padrão para listas e preços densos; o gerador
-de imagem pode criar uma variação visual opcional.
+Esta skill produz uma peça de ancoragem de valor para qualquer produto, em todas as superfícies necessárias: LP, checkout, WhatsApp, e-mail, anúncio e material comercial. Imagens e textos são gerados a partir de uma única fonte de verdade: o `data.json`.
 
 ## Regras invioláveis
 
-1. **MOTOR: HTML→PNG é o DEFAULT.** Use `scripts/render.mjs`, que renderiza o card com
-   preço e texto exatamente como estão no `data.json`. Para uma variação visual, use o
-   helper generalizado do repositório:
-   `python3 skills/gerar-imagem/scripts/gerar.py --prompt "..." --output X.png`.
-   O helper usa Gemini como caminho padrão e possui fallbacks configurados no próprio
-   script; `gpt-image-2` pode ser uma opção quando estiver disponível, mas não é
-   requisito.
-   - Faça QA visual obrigatório em cada PNG, conferindo preço dígito por dígito,
-     percentual do badge e acentuação em português.
-   - Prefira HTML→PNG quando a peça tiver tabela/lista longa, exigir correspondência
-     exata com `data.json` ou for uma regeneração em que só o preço mudou.
-2. **O parcelado é o maior elemento do card.** Para produto acima de R$97, destaque o
-   parcelado, não o à vista. O à vista fica como linha secundária. Se o checkout cobra
-   juros no parcelado, use a taxa real do SEU gateway; nunca dividir preço÷12 sem juros
-   se o cliente paga juros de verdade — isso subestima a parcela.
-3. **Item em destaque SEMPRE em 1º lugar** na lista, ocupando a linha inteira no
-   quadrado. É o carro-chefe da oferta.
-4. **Todo item leva seu valor de “de” riscado** em produto high/mid ticket. Exceção:
-   produto de entrada (R$17–R$97) não leva valor por item; a ancoragem fica somente em
-   `De R$97 por R$37`, com a lista de entregas sem coluna de preço e sem linha de valor
-   total. No padrão high/mid ticket, a soma dos itens é a âncora. Se remover um item,
-   recalcule a âncora e o percentual do badge.
-5. **Nenhum item pode quebrar linha ou cortar em “…”** — o cliente precisa ler tudo que
-   está levando. O template faz o auto-ajuste.
-6. **Botão CTA âmbar chapado**, sem glow, sombra ou gradiente.
-7. **Nada que faz parte da oferta fica sem preço.** Se é entregue, é item e soma na
-   âncora: comunidade, suporte, bônus e acesso entram como entregas explícitas. A linha
-   discreta abaixo da lista é para observação de escopo, não para esconder entregável.
-8. **Acesso vitalício com escopo limitado exige observação explícita.** Diga exatamente
-   qual versão, conteúdo ou período está incluído. Faça o mesmo para o prazo do suporte.
-9. **Prova social é sempre REAL.** Se a peça levar depoimento, nome, selo, número de
-   alunos ou resultado, ele tem que ser real do seu negócio — nunca invente citação nem
-   número. Se você não tem depoimento ainda, não inclua o elemento.
+1. **Fonte única de verdade.** O preço, a lista de entregas, o parcelado, a garantia, o acesso, a escassez e o CTA devem vir do mesmo `data.json` usado para gerar as artes e o texto.
+2. **Parcelado em destaque.** Para produtos acima de R$97, o parcelado deve ser o maior elemento de preço da peça. O valor à vista entra como linha secundária. Se o checkout cobra juros no parcelado, use a taxa real do SEU gateway; nunca dividir preço÷12 sem juros se o cliente paga juros de verdade — isso subestima a parcela.
+3. **Item em destaque sempre em primeiro lugar.** O carro-chefe da oferta ocupa a primeira posição da lista e, no quadrado, a linha inteira.
+4. **Todo item leva seu valor de.** Em produtos high ou mid ticket, cada entrega deve ter um valor defensável riscado. A soma dos itens é a âncora. Se remover ou alterar um item, recalcule a âncora e o percentual do badge. **Exceção low ticket (R$17–R$97):** não exibir valor por item nem linha de valor total; usar apenas a ancoragem geral, como `De R$97 por R$37`, e a lista de entregas sem coluna de preço.
+5. **Nenhum item pode quebrar linha ou ser cortado em reticências.** O cliente precisa conseguir ler tudo o que está levando. O template faz o auto-ajuste para preservar os rótulos.
+6. **CTA âmbar chapado.** O botão não deve usar glow, sombra ou gradiente.
+7. **Tudo que faz parte da oferta deve estar visível.** Se é entregue — suporte, grupo, bônus, acesso ou material — deve ser tratado como item e participar da ancoragem. A linha `incluso` é para observação de escopo, não para esconder entregáveis.
+8. **Escopo de acesso explícito.** Acesso vitalício com escopo limitado deve informar exatamente o que está incluído. O mesmo vale para o prazo de suporte: suporte por 30 dias não é suporte vitalício.
+9. **Prova social real.** Se a peça levar depoimento, nome, selo, número ou resultado, ele tem que ser REAL do seu negócio — nunca invente citação nem número. Se você não tem depoimento ainda, não inclua o elemento.
 
-## Anatomia (9 elementos, nesta ordem)
+## Motor de imagem e QA
+
+O caminho DEFAULT é o HTML→PNG determinístico de `scripts/render.mjs`, mais confiável para preço denso, listas e valores que precisam bater exatamente com o `data.json`.
+
+Como variação opcional, use o gerador generalizado de imagem do repositório:
+
+```bash
+python3 skills/gerar-imagem/scripts/gerar.py --prompt '...' --output X.png
+```
+
+Esse gerador usa Gemini como padrão do projeto e pode ser usado quando a peça se beneficiar de uma direção visual mais livre. Em qualquer imagem gerada, faça QA visual obrigatório: abra o PNG e confira dígito por dígito o preço, o percentual do badge, a acentuação em português, a posição do parcelado, a ordem dos itens e a ausência de texto inventado. Se o QA reprovar ou a peça tiver uma lista densa que precise ser exata, use o caminho HTML→PNG.
+
+## Anatomia da oferta
 
 | # | Elemento | Campo no `data.json` |
 |---|---|---|
-| 1 | Wordmark + badge (desconto/turma) | `wordmark`, `badge` |
-| 2 | Promessa (headline curta) | `promessa` |
-| 3 | Checklist — 1º item = destaque | `items[]` (`label`, `price`, `highlight`) |
-| 4 | Inclusos sem preço (linha corrida) | `incluso` |
-| 5 | Valor original riscado (âncora = soma) | `anchor` |
-| 6 | **Parcelado (DOMINANTE)** | `parcelado` |
-| 7 | À vista + prazo de acesso | `avista` |
-| 8 | Garantia · acesso · escassez | `garantia`, `acesso`, `escassez` |
-| 9 | CTA + rodapé (domínio) | `cta`, `checkout`, `rodape` |
+| 1 | Wordmark + badge de desconto ou turma | `wordmark`, `badge` |
+| 2 | Promessa ou headline curta | `promessa` |
+| 3 | Checklist, com o primeiro item em destaque | `items[]` (`label`, `price`, `highlight`) |
+| 4 | Inclusos sem preço, em linha corrida | `incluso` |
+| 5 | Valor original riscado, com âncora igual à soma | `anchor` |
+| 6 | Parcelado dominante | `parcelado` |
+| 7 | À vista e prazo de acesso | `avista`, `acesso` |
+| 8 | Garantia, acesso e escassez | `garantia`, `acesso`, `escassez` |
+| 9 | CTA e rodapé | `cta`, `checkout`, `rodape` |
 
-Extras: `slug` (nome dos arquivos), `theme` (`amber` ou `amber-blue`) e `bg`.
+Campos extras: `slug` define os nomes dos arquivos; `theme` aceita `amber` ou `amber-blue`; `bg` define o fundo.
 
 ## Inputs
 
-Se o usuário não trouxer, pergunte antes de gerar:
+Se o usuário não trouxer as informações, pergunte antes de gerar:
 
-- produto, preço à vista e **parcelado real** (conferido no gateway, não estimado);
-- lista de itens inclusos com o valor “de” de cada um;
-- item em destaque, garantia, prazo de acesso e escassez com data real;
-- checkout, domínio/rodapé e CTA.
-
-Se precisar montar a lista de itens, deixe claro quais valores foram arbitrados para
-aprovação. Não invente data de escassez nem publique preço estimado sem avisar.
+- Produto, preço à vista e **parcelado real**, conferido no checkout.
+- Lista de itens incluídos com o valor de cada item, quando for high ou mid ticket. Se os valores ainda não existirem, sinalize claramente quais foram arbitrados para aprovação.
+- Qual é o item em destaque.
+- Garantia, prazo e escopo de acesso.
+- Escassez com data ou condição real, nunca falsa.
+- Qualquer depoimento, nome, número ou resultado que o usuário queira usar, acompanhado da fonte real do negócio.
 
 ## Fluxo
 
-1. Crie uma pasta de projeto com `data.json` no formato de
-   `references/data-exemplo.json`.
-2. Gere as duas imagens:
-   `node ~/.claude/skills/criar-arte-oferta/scripts/render.mjs <dir-do-projeto>`.
-3. Gere o texto da mesma fonte:
-   `node ~/.claude/skills/criar-arte-oferta/scripts/gerar-texto.mjs <dir-do-projeto>`.
-4. Faça QA visual obrigatório em **cada** PNG: preços corretos, zero “…” inesperado,
-   zero quebra de linha, sem buraco preto, parcelado dominante, destaque em 1º e badge
-   coerente com âncora ÷ preço.
-5. Se a arte virar criativo de anúncio Meta, rode o gate de safe-zone antes de mostrar
-   para aprovação.
+1. Crie uma pasta de projeto com um `data.json` no formato de `references/data-exemplo.json`.
+2. Gere as imagens:
 
-## Safe-zone — QA antes de mostrar um criativo Meta
+   ```bash
+   node skills/criar-arte-oferta/scripts/render.mjs <dir-do-projeto>
+   ```
 
-O Meta sobrepõe elementos no topo e na base de Stories/Reels. Rode:
+3. Gere o texto:
+
+   ```bash
+   node skills/criar-arte-oferta/scripts/gerar-texto.mjs <dir-do-projeto>
+   ```
+
+4. Faça QA visual em cada PNG: preços corretos, zero reticências, zero corte ou quebra indevida, sem buraco preto, parcelado dominante, destaque em primeiro e badge coerente com âncora ÷ preço.
+5. Se a arte for virar criativo de anúncio Meta, execute o gate de safe-zone antes de mostrar a peça para aprovação.
+6. Entregue as imagens e o Markdown gerados. Não edite o Markdown manualmente; altere o `data.json` e regenere.
+
+## Safe-zone para anúncios Meta
+
+O Meta pode sobrepor elementos nos 14% superiores e nos 25% inferiores de Stories e Reels. Mantenha headline, preço e CTA na área segura.
+
+Para auditar um master quadrado e derivar o story:
 
 ```bash
 zx-safezone <slug>-oferta-quadrado.png --derivar
 ```
 
-Audite o master e o derivado. Se o helper informar `DERIVAÇÃO NÃO SERVE aqui`, gere o
-9:16 nativo, com tudo entre 14% e 75% da altura. `Exit 1` significa não mostrar nem
-publicar: regenere a peça. Para vídeo, use `zx-safezone <arquivo>.mp4 --modo stories`.
+Suba o master e o derivado quando a derivação for aprovada. Se o helper informar `DERIVAÇÃO NÃO SERVE aqui`, gere o 9:16 nativamente, com o layout pensado para 1080×1920 e os elementos principais entre 14% e 75% da altura. Um Exit 1 significa que a peça não deve ser mostrada nem publicada: regenere e rode o QA novamente. Abra o overlay `<arte>.safezone.png` para identificar violações.
+
+Para vídeo ou animação:
+
+```bash
+zx-safezone <arquivo>.mp4 --modo stories
+```
 
 ## Saídas
 
-Na pasta do projeto:
+Na pasta do projeto, gere:
 
-- `<slug>-oferta-quadrado.png` — 2160×2160;
-- `<slug>-oferta-story.png` — 2160×3840;
-- `<slug>-oferta.md` — bloco WhatsApp (`*negrito*`, `~riscado~`, emojis), bloco de
-  e-mail e referência das artes.
+- `<slug>-oferta-quadrado.png` — 2160×2160, para feed, LP, checkout e WhatsApp.
+- `<slug>-oferta-story.png` — 2160×3840, para Stories e status.
+- `<slug>-oferta.md` — texto pronto com bloco WhatsApp e bloco de e-mail, além da referência das artes.
 
 ## Como o auto-ajuste funciona
 
-O template escala tudo por `--k` e busca o maior valor que ainda cabe. O ajuste é
-bidirecional: cresce e encolhe para preencher a altura sem cortar conteúdo.
+O template escala todos os blocos por uma variável CSS `--k` e busca o maior valor que ainda cabe. O algoritmo é bidirecional: cresce quando há espaço e encolhe quando há overflow. Assim, evita tanto o corte quanto o buraco preto no story.
 
-- `semQuebra()` trava apenas o crescimento quando um rótulo passaria de uma linha; no
-  encolhimento há um piso para rótulos longos não derrubarem a escala inteira.
-- O preço é medido no próprio `.parcelado`, que usa `nowrap` e pode transbordar para
-  dentro do padding sem alterar `card.scrollWidth`.
-- Não use `scrollWidth <= clientWidth - N`: um filho full-width já ocupa toda a largura
-  e faria a escala colapsar no mínimo.
-- A folga vertical é distribuída com `justify-content: space-between` no `.wrap`; não
-  use `margin-top:auto` no CTA.
+A função `semQuebra()` interrompe apenas o crescimento quando algum rótulo passaria de uma linha. Ela não governa o encolhimento inteiro, porque um rótulo comprido não deve derrubar a escala até o mínimo. O encolhimento possui um piso para tentar desquebrar os rótulos e, se necessário, aceitar duas linhas sem colapsar toda a composição.
 
-No quadrado, até 10 itens usam coluna única automática para manter rótulos legíveis.
+O preço é medido no próprio elemento `.parcelado`, que usa `nowrap` e pode transbordar para dentro do padding sem alterar o `scrollWidth` do card. Por isso, não use apenas o `scrollWidth` do card nem testes com uma margem fixa: um filho full-width já ocupa toda a largura e produziria uma medição falsa.
+
+A folga vertical é distribuída com `justify-content: space-between` no `.wrap`. O CTA não usa `margin-top: auto`, pois isso absorveria toda a sobra e impediria a distribuição equilibrada entre os blocos.
+
+No quadrado, o template usa uma coluna automática quando há até 10 itens, favorecendo a leitura integral dos rótulos.
 
 ## Dependências
 
-- Playwright (JS) e Google Chrome instalado; o template usa `channel: 'chrome'`.
-- Instale a dependência na própria pasta da skill: `npm install playwright`.
-- Fontes Inter e JetBrains Mono via Google Fonts (rede necessária no render).
+- Playwright para JavaScript.
+- Google Chrome instalado, pois o template usa `channel: 'chrome'`.
+- Fontes Inter e JetBrains Mono. O render pode precisar de rede para carregá-las.
+
+Instale a dependência na própria pasta da skill:
+
+```bash
+npm install playwright
+```
 
 ## Não fazer
 
-- Não edite o `.md` gerado à mão; altere `data.json` e regenere arte e texto.
-- Não invente depoimento, aluno, número, resultado ou data de escassez.
-- Não deixe a âncora divergente da soma dos itens.
-- Não publique arte com preço estimado sem avisar que é estimativa.
+- Não editar os arquivos `.md` gerados à mão.
+- Não inventar depoimentos, alunos, números, resultados ou datas de escassez.
+- Não publicar uma arte com preço estimado sem avisar que é estimativa.
+- Não deixar a âncora divergente da soma dos itens.
+- Não esconder entregáveis na linha de observação.
+
+## Gate de qualidade da copy
+
+A checagem é técnica, não editorial. Confirme:
+
+1. O preço aparece junto de uma âncora clara, por exemplo `R$97 (de R$997 — 90% OFF)`.
+2. Nenhuma frase anula a própria escassez.
+3. Existe uma ponte lógica entre o que o cliente já comprou, o que falta e o que a oferta resolve.
+4. O fechamento informa a redução de risco, como garantia e prazo de acesso.
+5. O prazo da mensagem é o mesmo prazo usado na página ou no checkout.
+6. Todo preço citado é o preço vivo da oferta.
+7. Toda prova social usada é real e verificável.

@@ -12,8 +12,8 @@ if (!existsSync(dir + 'data.json')) {
 }
 const data = JSON.parse(readFileSync(dir + 'data.json', 'utf8'));
 
-// VALIDAR TUDO ANTES DE ESCREVER: um produto inválido não pode deixar uma mistura
-// de textos novos e antigos no disco.
+// Valida tudo antes de escrever qualquer arquivo, evitando uma mistura de
+// textos novos e antigos quando há mais de um produto no data.json.
 const OBRIGATORIOS = ['wordmark','badge','promessa','items','anchor','parcelado','avista',
                       'garantia','acesso','escassez','cta','rodape'];
 const problemas = [];
@@ -24,11 +24,11 @@ for (const [chave, prod] of Object.entries(data)) {
     }
   }
   if (prod.items !== undefined && !Array.isArray(prod.items)) {
-    problemas.push(`${chave}: "items" precisa ser lista`);
+    problemas.push(`${chave}: items precisa ser lista`);
   } else if (Array.isArray(prod.items)) {
     prod.items.forEach((it, i) => {
-      if (!it?.label) problemas.push(`${chave}: items[${i}] sem "label"`);
-      if (!it?.price) problemas.push(`${chave}: items[${i}] sem "price"`);
+      if (!it?.label) problemas.push(`${chave}: items[${i}] sem label`);
+      if (!it?.price) problemas.push(`${chave}: items[${i}] sem price`);
     });
   }
 }
@@ -108,7 +108,7 @@ for (const [chave, slug] of Object.entries(arquivos)) {
   const md = [
     `# Oferta — ${d.wordmark}`,
     '',
-    `> Gerado de \`data.json\`. Não edite este arquivo à mão: altere o data.json e rode \`node gerar-texto.mjs\`.`,
+    ' > Gerado de `data.json`. Não edite este arquivo à mão: altere o data.json e rode `node gerar-texto.mjs`.',
     '',
     '## WhatsApp (copiar e colar)',
     '',

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Anúncio — motor multi-variação</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --amber:#D97706; --amber-light:#F59E0B; --amber-soft:rgba(217,119,6,.16);
+    --bg:#0a0a0a; --surface:#141414; --line:#262626;
+    --text:#ffffff; --text-dim:#b4b4b4; --green:#4ade80;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:#000}
+  #stage{position:relative;width:1080px;height:1920px;background:var(--bg);
+    overflow:hidden;font-family:'Inter',system-ui,sans-serif;color:var(--text);}
+  .bg{position:absolute;inset:0;
+    background:
+      radial-gradient(1200px 700px at 50% 18%, rgba(217,119,6,.14), transparent 60%),
+      radial-gradient(900px 600px at 50% 90%, rgba(217,119,6,.06), transparent 60%);}
+  .bg::after{content:"";position:absolute;inset:0;opacity:.35;
+    background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:60px 60px;}
+  .safe{position:absolute;left:0;right:0;border-top:2px dashed rgba(217,119,6,.4);z-index:60;pointer-events:none}
+  #safeTop{top:14%}#safeBot{top:75%}
+  body.norulers .safe{display:none}
+
+  .headline{position:absolute;top:288px;left:70px;right:70px;text-align:center;z-index:40}
+  .headline .kick{font-family:'JetBrains Mono',monospace;font-size:26px;color:var(--amber);
+    letter-spacing:2px;margin-bottom:12px;text-transform:uppercase}
+  .headline .big{font-size:64px;font-weight:900;line-height:1.08;letter-spacing:-1px}
+  .headline .big b{color:var(--amber)}
+
+  .scene{position:absolute;inset:0;z-index:20;opacity:0}
+  .stagewrap{position:absolute;top:568px;bottom:520px;left:64px;right:64px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}
+
+  .terminal{width:100%;background:#0d0d0d;border:1px solid var(--line);border-radius:20px;
+    overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+  .tbar{display:flex;align-items:center;gap:10px;padding:18px 22px;background:#171717;border-bottom:1px solid var(--line)}
+  .tbar i{width:14px;height:14px;border-radius:50%;display:block}
+  .tbar .tt{margin-left:14px;font-family:'JetBrains Mono',monospace;font-size:22px;color:#7a7a7a}
+  .tcode{padding:26px 30px;font-family:'JetBrains Mono',monospace;font-size:30px;line-height:1.62;min-height:360px}
+  .tcode .row{white-space:pre-wrap;opacity:0}
+  .tcode .amber{color:var(--amber)}.tcode .blue{color:#7aa2f7}.tcode .green{color:var(--green)}.tcode .dim{color:#666}
+  .cursor{display:inline-block;width:16px;height:30px;background:var(--amber);vertical-align:-4px;margin-left:4px}
+  .support{font-size:34px;color:var(--text-dim);text-align:center;opacity:0}
+  .support b{color:#fff}
+
+  .wa{width:100%;max-width:820px;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+  .wahead{display:flex;align-items:center;gap:16px;background:#128C7E;padding:20px 24px;opacity:0}
+  .wahead .av{width:56px;height:56px;border-radius:50%;background:#0b5c50;display:flex;align-items:center;justify-content:center;font-size:30px}
+  .wahead .nm{font-size:32px;font-weight:700;line-height:1.1}
+  .wahead .on{font-size:20px;color:#cdeee7}
+  .wabody{background:#0b141a;padding:26px 24px;display:flex;flex-direction:column;gap:18px;
+    background-image:radial-gradient(rgba(255,255,255,.02) 1px,transparent 1px);background-size:22px 22px}
+  .bub{max-width:80%;padding:16px 20px;border-radius:16px;font-size:31px;line-height:1.32;opacity:0;position:relative}
+  .bub .tm{display:block;font-size:19px;opacity:.6;text-align:right;margin-top:4px}
+  .bub.me{align-self:flex-end;background:#005c4b;color:#e9ffe9;border-bottom-right-radius:5px}
+  .bub.cli{align-self:flex-start;background:#202c33;color:#eaeaea;border-bottom-left-radius:5px}
+  .bub b{color:#fff;font-weight:800}
+  .kaching{position:absolute;top:150px;right:70px;font-size:96px;opacity:0;z-index:50;
+    filter:drop-shadow(0 10px 24px rgba(217,119,6,.5))}
+
+  .offtitle{font-size:36px;font-weight:800;text-align:center;opacity:0}
+  .offtitle b{color:var(--amber)}
+  .offlist{list-style:none;width:100%;max-width:860px;display:flex;flex-direction:column;gap:9px}
+  .offlist li{display:flex;gap:16px;align-items:flex-start;font-size:29px;color:var(--text-dim);
+    line-height:1.22;opacity:0;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:11px 18px}
+  .offlist li .ck{color:var(--amber);font-weight:800;flex:none;font-size:29px}
+  .offlist li b{color:#fff;font-weight:700}
+  .badge{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--amber);
+    background:var(--amber-soft);padding:8px 20px;border-radius:30px;opacity:0}
+  .price{display:flex;align-items:baseline;gap:20px;justify-content:center}
+  .price .old{font-size:48px;color:#777;text-decoration:line-through;opacity:0}
+  .price .new{font-family:'JetBrains Mono',monospace;font-size:110px;font-weight:700;color:var(--amber);line-height:.9;opacity:0}
+  .guar{font-size:24px;color:#9a9a9a;text-align:center;opacity:0}
+
+  .logo{font-family:'JetBrains Mono',monospace;font-size:34px;letter-spacing:6px;color:var(--amber);font-weight:700;opacity:0}
+  .ctahead{font-size:60px;font-weight:900;text-align:center;line-height:1.12;opacity:0}
+  .ctahead .val{color:var(--amber);font-family:'JetBrains Mono',monospace;font-size:120px;display:block;margin-top:6px}
+  .ctabtn{background:var(--amber);color:#0a0a0a;font-weight:800;font-size:44px;padding:26px 60px;border-radius:18px;opacity:0;box-shadow:0 16px 40px rgba(217,119,6,.35)}
+  .arrow{font-size:70px;color:var(--amber);line-height:.8;opacity:0}
+  .ctahint{font-size:32px;color:var(--text-dim);text-align:center;opacity:0}
+  .ctahint b{color:#fff}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="bg"></div>
+  <div class="safe" id="safeTop"></div>
+  <div class="safe" id="safeBot"></div>
+
+  <div class="headline" id="headline">
+    <div class="kick" id="hkick">// com [PRODUTO]</div>
+    <div class="big" id="hbig">[HEADLINE DO PRODUTO]</div>
+  </div>
+
+  <section class="scene" id="s1"><div class="stagewrap">
+    <div class="terminal">
+      <div class="tbar"><i style="background:#ff5f56"></i><i style="background:#ffbd2e"></i><i style="background:#27c93f"></i><span class="tt">claude-code — agente.py</span></div>
+      <div class="tcode">
+        <div class="row" id="c1"><span class="amber">$</span> claude</div>
+        <div class="row" id="c2"><span class="blue">&gt;</span> <span id="typed"></span><span class="cursor" id="cur1"></span></div>
+        <div class="row" id="c3"><span class="dim"># gerando automação...</span></div>
+        <div class="row" id="c4"><span class="green">✓</span> fluxo criado</div>
+        <div class="row" id="c5"><span class="green">✓</span> integração conectada</div>
+        <div class="row" id="c6"><span class="green">✓</span> agente no ar <span class="cursor" id="cur2"></span></div>
+      </div>
+    </div>
+    <div class="support" id="s1sup">Uma automação que você <b>vende</b> — pronta em minutos</div>
+  </div></section>
+
+  <section class="scene" id="s2"><div class="stagewrap">
+    <div class="wa">
+      <div class="wahead" id="wah"><div class="av">👤</div><div><div class="nm">Cliente</div><div class="on">online</div></div></div>
+      <div class="wabody">
+        <div class="bub cli" id="b1">[Mensagem do cliente — interesse/elogio]<span class="tm">14:32</span></div>
+        <div class="bub me" id="b2">Fechado 🙌 Fica <b>R$[VALOR]</b><span class="tm">14:32 ✓✓</span></div>
+        <div class="bub cli" id="b3">Acabei de pagar via [MÉTODO] ✅<span class="tm">14:33</span></div>
+        <div class="bub me" id="b4">Recebido! 🤝<span class="tm">14:33 ✓✓</span></div>
+      </div>
+    </div>
+    <div class="kaching" id="kaching">💰</div>
+  </div></section>
+
+  <!-- ===== CONTEÚDO DO PRODUTO — EDITAR TUDO ABAIXO =====
+       IDs a trocar ao adaptar para novo produto:
+         b1-b4   : balões do WhatsApp (texto de negociação/pagamento)
+         b2      : contém o valor cobrado (ex: R$500)
+         o1-o7   : bullets da oferta (o que o cliente recebe)
+         badge   : desconto e tipo de oferta (ex: -62% · OFERTA DE LANÇAMENTO)
+         pold    : preço âncora (riscado)
+         pnew    : preço final (destaque)
+         guar    : texto de garantia
+         logo    : nome da marca
+         ctah    : headline do CTA (inclui .val com o preço)
+         ctabtn  : texto do botão
+       Campos de headline/kick/scene1sub ficam em variants.mjs (EDITAR LÁ).
+       ===================================================== -->
+  <section class="scene" id="s3"><div class="stagewrap" style="gap:11px">
+    <div class="offtitle" id="offt">Você recebe <b>tudo isso</b>:</div>
+    <ul class="offlist">
+      <li id="o1"><span class="ck">✓</span><span><b>[Entregável 1]</b> — descrição</span></li>
+      <li id="o2"><span class="ck">✓</span><span><b>[Entregável 2]</b> — descrição</span></li>
+      <li id="o3"><span class="ck">✓</span><span><b>[Entregável 3]</b> — descrição</span></li>
+      <li id="o4"><span class="ck">✓</span><span><b>[Entregável 4]</b> — descrição</span></li>
+      <li id="o5"><span class="ck">✓</span><span><b>[Bônus]</b> — descrição</span></li>
+      <li id="o6"><span class="ck">✓</span><span><b>[Extra]</b> — descrição</span></li>
+      <li id="o7"><span class="ck">✓</span><span><b>Acesso vitalício</b> + atualizações</span></li>
+    </ul>
+    <div class="badge" id="badge">-XX% · OFERTA DE LANÇAMENTO</div>
+    <div class="price"><span class="old" id="pold">R$XX</span><span class="new" id="pnew">R$YY</span></div>
+    <div class="guar" id="guar">Pagamento único · garantia de 7 dias</div>
+  </div></section>
+
+  <section class="scene" id="s4"><div class="stagewrap">
+    <div class="logo" id="logo">[MARCA]</div>
+    <div class="ctahead" id="ctah">Garanta sua vaga por<span class="val">R$YY</span></div>
+    <div class="ctabtn" id="ctabtn">Comece agora</div>
+    <div class="arrow" id="arrow">▼</div>
+    <div class="ctahint" id="ctahint">Clique em <b>"Saiba mais"</b> aqui embaixo</div>
+  </div></section>
+</div>
+
+<script>
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const easeOut=t=>1-Math.pow(1-t,3);
+  const easeBack=t=>{const c=1.70158;return 1+(c+1)*Math.pow(t-1,3)+c*Math.pow(t-1,2);};
+  function fade(t,inS,inE,outS,outE){
+    if(t<inS||t>outE)return 0;
+    if(t<inE)return (t-inS)/(inE-inS);
+    if(t<outS)return 1;
+    return 1-(t-outS)/(outE-outS);
+  }
+  function reveal(el,localT,at,dur=380,rise=26){
+    const p=clamp((localT-at)/dur,0,1),e=easeOut(p);
+    el.style.opacity=e; el.style.transform=`translateY(${(1-e)*rise}px)`;
+  }
+  function pop(el,localT,at,dur=420){
+    const p=clamp((localT-at)/dur,0,1);
+    el.style.opacity=clamp(p*1.6,0,1); el.style.transform=`scale(${0.6+easeBack(p)*0.4})`;
+  }
+  const blink=t=>(Math.floor(t/500)%2===0)?1:0;
+  // EDITAR: texto digitado no terminal (o que o usuário "pede" ao Claude Code)
+  const TYPED="[descreva o que o agente/automação faz]";
+
+  // ------- configuração da variação -------
+  const DEFAULT={id:'a',kick:'// com [PRODUTO]',big:'[HEADLINE DO PRODUTO]',
+    headlineSize:64,order:['terminal','whatsapp','offer','cta'],
+    scene1sub:'[Subtítulo da cena terminal — o que a IA faz]'};
+  const V = Object.assign({}, DEFAULT, (window.__VARIANT||{}));
+  document.getElementById('hkick').innerHTML=V.kick;
+  document.getElementById('hbig').innerHTML=V.big;
+  document.getElementById('headline').querySelector('.big').style.fontSize=V.headlineSize+'px';
+  document.getElementById('s1sup').innerHTML=V.scene1sub;
+
+  const END=22000;
+  const SLOTS=[[0,6000],[6000,12000],[12000,18000],[18000,END]];
+  const SCENES={
+    terminal:{el:'s1',sub:renderTerminal},
+    whatsapp:{el:'s2',sub:renderWhatsapp},
+    offer:{el:'s3',sub:renderOffer},
+    cta:{el:'s4',sub:renderCta},
+  };
+
+  function renderTerminal(lt){
+    reveal(document.getElementById('c1'),lt,200,300,10);
+    reveal(document.getElementById('c2'),lt,450,250,10);
+    const tp=clamp((lt-550)/2000,0,1);
+    document.getElementById('typed').textContent=TYPED.slice(0,Math.floor(tp*TYPED.length));
+    document.getElementById('cur1').style.opacity=(lt>450&&lt<2750)?blink(lt):0;
+    reveal(document.getElementById('c3'),lt,2650,300,10);
+    reveal(document.getElementById('c4'),lt,3150,300,10);
+    reveal(document.getElementById('c5'),lt,3650,300,10);
+    reveal(document.getElementById('c6'),lt,4150,300,10);
+    document.getElementById('cur2').style.opacity=(lt>4150)?blink(lt):0;
+    const s1supEl=document.getElementById('s1sup');
+    reveal(s1supEl,lt,4750,450,18);
+    // fade-out explícito antes da transição de cena (lt>5200 → apaga em 200ms)
+    if(lt>5200){s1supEl.style.opacity=String(clamp(1-(lt-5200)/200,0,1));}
+  }
+  function renderWhatsapp(lt){
+    reveal(document.getElementById('wah'),lt,300,350,14);
+    reveal(document.getElementById('b1'),lt,700,360,18);
+    reveal(document.getElementById('b2'),lt,1600,360,18);
+    reveal(document.getElementById('b3'),lt,2700,360,18);
+    reveal(document.getElementById('b4'),lt,3700,360,18);
+    pop(document.getElementById('kaching'),lt,2700,500);
+    if(lt>3600){document.getElementById('kaching').style.opacity=clamp(1-(lt-3600)/700,0,1);}
+  }
+  function renderOffer(lt){
+    reveal(document.getElementById('offt'),lt,150,350,14);
+    for(let i=1;i<=7;i++) reveal(document.getElementById('o'+i),lt,500+(i-1)*260,340,16);
+    reveal(document.getElementById('badge'),lt,2650,350,12);
+    reveal(document.getElementById('pold'),lt,2950,300,10);
+    pop(document.getElementById('pnew'),lt,3250,520);
+    reveal(document.getElementById('guar'),lt,4000,350,12);
+  }
+  function renderCta(lt){
+    reveal(document.getElementById('logo'),lt,200,350,12);
+    reveal(document.getElementById('ctah'),lt,600,400,18);
+    pop(document.getElementById('ctabtn'),lt,1200,420);
+    const ar=document.getElementById('arrow');
+    reveal(ar,lt,1600,300,10);
+    if(lt>1600){const ph=(Math.sin((lt-1600)/300)+1)/2;ar.style.transform=`translateY(${ph*14}px)`;}
+    reveal(document.getElementById('ctahint'),lt,1900,350,14);
+  }
+
+  function render(t){
+    reveal(document.getElementById('headline'),t,300,600,18);
+    ['s1','s2','s3','s4'].forEach(id=>document.getElementById(id).style.opacity=0);
+    V.order.forEach((name,i)=>{
+      const [s,e]=SLOTS[i], sc=SCENES[name];
+      const inS = i===0? -1 : s-350;
+      const inE = i===0? 0 : s;
+      const outS = i===3? END+1 : e-350;
+      const outE = i===3? END+2 : e;
+      document.getElementById(sc.el).style.opacity=fade(t,inS,inE,outS,outE);
+      sc.sub(t-s);
+    });
+  }
+
+  // marcos de áudio derivados da ordem (ms)
+  window.__audio=function(){
+    const slotStart=name=>SLOTS[V.order.indexOf(name)][0];
+    return { typingStart: slotStart('terminal'), cashTime: slotStart('whatsapp')+2700 };
+  };
+
+  window.__capture=false;
+  window.seek=function(ms){ render(clamp(ms,0,END)); };
+  let start=null;
+  function loop(ts){ if(window.__capture)return; if(start===null)start=ts;
+    render(clamp((ts-start)%(END+800),0,END)); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>

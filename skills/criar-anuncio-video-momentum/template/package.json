@@ -1,0 +1,22 @@
+{
+  "name": "anuncio-momentum",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Momentum out/momentum.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.489",
+    "@remotion/google-fonts": "4.0.489",
+    "@remotion/transitions": "4.0.489",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.489"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.9"
+  }
+}
