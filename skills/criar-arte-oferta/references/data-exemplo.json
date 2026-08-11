@@ -1,0 +1,39 @@
+{
+  "corte-costura-avancado": {
+    "slug": "corte-costura-avancado",
+    "wordmark": "Curso de Corte e Costura Avançado",
+    "badge": "86% OFF · condição de lançamento",
+    "promessa": "Aprenda a criar peças sob medida com acabamento profissional.",
+    "items": [
+      {
+        "label": "Módulo 1 — Fundamentos e preparação",
+        "price": "R$697",
+        "highlight": true
+      },
+      {
+        "label": "Módulo 2 — Modelagem sob medida",
+        "price": "R$897"
+      },
+      {
+        "label": "Módulo 3 — Técnicas avançadas de montagem",
+        "price": "R$1.197"
+      },
+      {
+        "label": "Módulo 4 — Acabamento e portfólio",
+        "price": "R$697"
+      }
+    ],
+    "incluso": "Inclui moldes em PDF, lista de materiais e exercícios práticos.",
+    "anchor": "De R$3.488",
+    "parcelado": "12x de R$49,70",
+    "avista": "ou R$497 à vista no PIX",
+    "garantia": "Garantia de 7 dias",
+    "acesso": "Acesso por 12 meses",
+    "escassez": "Inscrições abertas até 30/09/2026",
+    "cta": "QUERO APRENDER",
+    "checkout": "https://checkout.exemplo.test/corte-costura",
+    "rodape": "cursocostura.exemplo",
+    "theme": "amber",
+    "bg": "#0A0A0A"
+  }
+}

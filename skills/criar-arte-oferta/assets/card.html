@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root{
+    --amber:#D97706; --amber-light:#F59E0B; --blue:#2563EB; --blue-light:#3B82F6;
+    --white:#F5F5F5; --gray:#A3A3A3; --gray-dim:#6B7280; --green:#4ADE80;
+    --accent:var(--amber); --accent-light:var(--amber-light);
+  }
+  html,body{ background:#000; }
+  #card{
+    position:relative; overflow:hidden; color:var(--white);
+    font-family:'Inter',system-ui,sans-serif;
+    display:flex; flex-direction:column;
+    background:var(--bg,#0A0A0A);
+  }
+  #card::before{ /* glow central */
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse 70% 45% at 50% 46%, rgba(217,119,6,0.16), transparent 70%);
+  }
+  #card.theme-amber-blue::before{
+    background:radial-gradient(ellipse 70% 45% at 50% 46%, rgba(217,119,6,0.14), transparent 70%),
+               radial-gradient(ellipse 80% 60% at 82% 30%, rgba(37,99,235,0.16), transparent 72%);
+  }
+  .graph{ position:absolute; inset:0; pointer-events:none; opacity:.55; display:none; }
+  #card.theme-amber-blue .graph{ display:block; }
+  /* space-between distribui a sobra vertical entre TODOS os blocos, em vez de
+     acumular tudo num buraco preto antes do CTA (cards densos têm sobra ~0) */
+  .wrap{ position:relative; z-index:2; display:flex; flex-direction:column; height:100%;
+    justify-content:space-between; }
+
+  /* ---- Header ---- */
+  .head{ display:flex; flex-direction:column; gap:calc(10px * var(--k)); }
+  .wordmark{ font-weight:900; letter-spacing:-0.5px; line-height:.98; color:#fff;
+    font-size:calc(58px * var(--k)); text-transform:uppercase; }
+  .badge{ align-self:flex-start; font-weight:800; font-size:calc(19px * var(--k));
+    letter-spacing:.5px; padding:calc(9px * var(--k)) calc(18px * var(--k));
+    border-radius:999px; background:var(--accent); color:#0A0A0A; }
+  #card.theme-amber-blue .badge{ background:var(--blue); color:#fff; }
+  .promessa{ color:var(--accent-light); font-weight:600; font-size:calc(23px * var(--k));
+    line-height:1.28; margin-top:calc(4px * var(--k)); }
+
+  /* ---- Checklist ---- */
+  .list{ display:grid; gap:calc(9px * var(--k)) calc(26px * var(--k)); margin-top:calc(20px * var(--k)); }
+  .row{ display:flex; align-items:center; gap:calc(11px * var(--k)); min-width:0;
+    font-size:calc(23.5px * var(--k)); line-height:1.2; }
+  .row .chk{ color:var(--green); flex:0 0 auto; font-weight:800; font-size:calc(19px * var(--k)); }
+  .row .lbl{ color:var(--white); flex:1 1 auto; min-width:0; overflow:hidden;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+    white-space:normal; font-weight:500; }
+  .row .val{ flex:0 0 auto; font-family:'JetBrains Mono',monospace; font-weight:700;
+    color:var(--gray-dim); text-decoration:line-through; font-size:calc(20.5px * var(--k));
+    white-space:nowrap; text-align:right; }
+  .row.hl{ background:rgba(217,119,6,.12); border-left:calc(4px * var(--k)) solid var(--accent);
+    padding:calc(6px * var(--k)) calc(12px * var(--k)); border-radius:calc(8px * var(--k)); margin-left:calc(-12px * var(--k)); }
+  .row.hl .lbl{ color:var(--accent-light); font-weight:700; }
+  /* item em destaque ocupa a linha inteira: o negrito é mais largo e quebraria
+     numa coluna só — e de quebra dá mais peso ao carro-chefe da oferta */
+  #card.square .row.hl{ grid-column:1 / -1; }
+  .incluso{ margin-top:calc(12px * var(--k)); color:var(--gray); font-size:calc(17px * var(--k));
+    line-height:1.35; font-weight:500; }
+
+  /* ---- Price ---- */
+  .anchor{ margin-top:calc(20px * var(--k)); display:flex; align-items:baseline; gap:calc(12px * var(--k)); }
+  .anchor .cap{ color:var(--gray); font-size:calc(19px * var(--k)); font-weight:600; letter-spacing:.5px; text-transform:uppercase; }
+  .anchor .amt{ font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--gray-dim);
+    text-decoration:line-through; font-size:calc(30px * var(--k)); white-space:nowrap; }
+  /* padding-right dá folga pro preço (nowrap) não encostar na margem do card */
+  .price{ margin-top:calc(6px * var(--k)); padding-right:calc(16px * var(--k)); }
+  .parcelado{ font-family:'JetBrains Mono',monospace; font-weight:800; color:var(--accent-light);
+    font-size:calc(84px * var(--k)); line-height:1; letter-spacing:-1px; white-space:nowrap; }
+  .avista{ color:var(--white); font-size:calc(26px * var(--k)); font-weight:600; margin-top:calc(6px * var(--k)); }
+  .avista b{ color:var(--accent-light); font-family:'JetBrains Mono',monospace; }
+
+  /* ---- Trust row ---- */
+  .trust{ display:flex; gap:calc(12px * var(--k)); margin-top:calc(18px * var(--k)); flex-wrap:wrap; }
+  .pill{ display:flex; align-items:center; gap:calc(8px * var(--k)); font-size:calc(18px * var(--k));
+    font-weight:600; color:var(--white); background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12); padding:calc(9px * var(--k)) calc(16px * var(--k)); border-radius:999px; }
+  .scarcity{ margin-top:calc(14px * var(--k)); color:var(--accent-light); font-weight:700;
+    font-size:calc(20px * var(--k)); letter-spacing:.3px; }
+
+  /* ---- CTA ---- */
+  /* sem margin-top:auto — ele engoliria toda a folga e mataria o space-between do .wrap */
+  .cta{ padding-top:calc(24px * var(--k)); }
+  .btn{ display:flex; align-items:center; justify-content:center; width:100%;
+    background:var(--accent); color:#0A0A0A; font-weight:800; text-transform:uppercase;
+    font-size:calc(30px * var(--k)); letter-spacing:.5px; padding:calc(26px * var(--k)) 0;
+    border-radius:calc(10px * var(--k)); }
+  .foot{ text-align:center; color:var(--gray-dim); font-size:calc(16px * var(--k));
+    font-weight:500; margin-top:calc(14px * var(--k)); letter-spacing:.5px; }
+
+  /* ---- Formats ---- */
+  #card.square{ width:1080px; height:1080px; padding:56px; }
+  #card.square .wrap{ --k:0.9; }
+  #card.square .list{ grid-template-columns:1fr 1fr; }
+  /* poucos itens → 1 coluna larga: rótulo inteiro cabe sem cortar em "…" */
+  #card.square.uma-coluna .list{ grid-template-columns:1fr; }
+  #card.story{ width:1080px; height:1920px; padding:80px 72px; }
+  #card.story .wrap{ --k:1; gap:0; }
+  #card.story .list{ grid-template-columns:1fr; }
+  #card.story .parcelado{ font-size:calc(96px * var(--k)); }
+  #card.story .wordmark{ font-size:calc(66px * var(--k)); }
+</style>
+</head>
+<body>
+<div id="card"><div class="wrap"></div></div>
+<script>
+(async function(){
+  const q = new URLSearchParams(location.search);
+  const p = q.get('p') || 'formacao';
+  const f = q.get('f') || 'square';
+  let DATA = window.__CARD_DATA__;
+  if(!DATA){ try{ DATA = await (await fetch('data.json')).json(); }catch(e){ DATA={}; } }
+  const d = (DATA||{})[p];
+  const card = document.getElementById('card');
+  const wrap = card.querySelector('.wrap');
+  if(!d){ wrap.innerHTML = '<p style="color:#fff">produto inválido: '+p+'</p>'; return; }
+
+  card.className = f + ' theme-' + (d.theme||'amber')
+    + (f === 'square' && (d.items||[]).length <= 10 ? ' uma-coluna' : '');
+  card.style.setProperty('--bg', d.bg||'#0A0A0A');
+  if((d.theme||'').includes('blue')){
+    card.style.setProperty('--accent','var(--amber)');
+    card.style.setProperty('--accent-light','var(--amber-light)');
+  }
+
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows = d.items.map(it =>
+    `<div class="row${it.highlight?' hl':''}"><span class="chk">✓</span>`+
+    `<span class="lbl">${esc(it.label)}</span>`+
+    `<span class="val">${esc(it.price)}</span></div>`).join('');
+
+  const graph = (d.theme||'').includes('blue') ? `
+    <svg class="graph" viewBox="0 0 1080 1080" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+        <stop offset="0" stop-color="#2563EB" stop-opacity="0"/>
+        <stop offset="1" stop-color="#3B82F6" stop-opacity="0.9"/></linearGradient></defs>
+      <polyline fill="none" stroke="url(#g)" stroke-width="4"
+        points="0,760 120,700 240,720 360,600 480,620 600,470 720,500 840,320 960,360 1080,120"/>
+    </svg>` : '';
+
+  wrap.innerHTML = graph + `
+    <div class="head">
+      <div class="wordmark">${esc(d.wordmark)}</div>
+      <div class="badge">${esc(d.badge)}</div>
+      <div class="promessa">${esc(d.promessa)}</div>
+    </div>
+    <div class="list">${rows}</div>
+    ${d.incluso?`<div class="incluso">${esc(d.incluso)}</div>`:''}
+    <div class="anchor"><span class="cap">Valor total</span><span class="amt">${esc(d.anchor)}</span></div>
+    <div class="price">
+      <div class="parcelado">${esc(d.parcelado)}</div>
+      <div class="avista">${esc(d.avista)}</div>
+    </div>
+    <div class="trust">
+      <div class="pill">🛡️ ${esc(d.garantia)}</div>
+      <div class="pill">⏳ ${esc(d.acesso)}</div>
+    </div>
+    <div class="scarcity">⚡ ${esc(d.escassez)}</div>
+    <div class="cta"><div class="btn">${esc(d.cta)}</div></div>
+    <div class="foot">${esc(d.rodape)}</div>`;
+
+  // auto-fit: ajusta --k global para ocupar a altura sem estourar
+  const fit = () => {
+    let k = parseFloat(getComputedStyle(wrap).getPropertyValue('--k')) || 1;
+    const minK = 0.4;
+    // teto alto: quem trava o crescimento de fato é semQuebra() (1 linha por rótulo)
+    const maxK = f === 'story' ? 1.7 : 1.4;
+    const step = 0.02;
+    const maxIterations = 120;
+    let guard = 0;
+    // o preço é nowrap e pode transbordar PARA DENTRO do padding do card sem alterar
+    // card.scrollWidth — por isso é medido no próprio elemento
+    const precoEl = card.querySelector('.parcelado');
+    const precoCabe = () => !precoEl || precoEl.scrollWidth <= precoEl.clientWidth;
+    const fits = () => card.scrollHeight <= card.clientHeight + 1
+                    && card.scrollWidth  <= card.clientWidth  + 1
+                    && precoCabe();
+    // nenhum rótulo pode passar de 1 linha. Só trava o CRESCIMENTO (não o encolhimento):
+    // se entrasse no encolher, um rótulo longo demais derrubaria a escala até o mínimo
+    const semQuebra = () => Array.prototype.every.call(card.querySelectorAll('.lbl'), el => {
+      const cs = getComputedStyle(el);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      return el.getBoundingClientRect().height <= lh * 1.5;
+    });
+    const podeCrescer = () => fits() && semQuebra();
+    const setK = value => wrap.style.setProperty('--k', value.toFixed(3));
+    k = Math.min(maxK, Math.max(minK, k));
+    setK(k);
+
+    while(!fits() && k > minK && guard < maxIterations){
+      k = Math.max(minK, k - step); setK(k); guard++;
+    }
+    // encolher TAMBÉM quando um rótulo já nasce quebrado no k inicial — mas com PISO.
+    // Sem o piso, um rótulo longo demais derrubaria a escala até o mínimo; com ele, tenta
+    // desquebrar e desiste aceitando 2 linhas.
+    const pisoQuebra = 0.75;
+    while(!semQuebra() && k > pisoQuebra && guard < maxIterations){
+      k = Math.max(pisoQuebra, k - step); setK(k); guard++;
+    }
+    while(podeCrescer() && k < maxK && guard < maxIterations){
+      const nextK = Math.min(maxK, k + step);
+      setK(nextK); guard++;
+      if(!podeCrescer()){
+        setK(k);
+        break;
+      }
+      k = nextK;
+    }
+  };
+  if(document.fonts && document.fonts.ready){ await document.fonts.ready; }
+  fit();
+  // expõe o estado final pro render.mjs avisar em vez de gerar PNG cortado em silêncio
+  window.__FIT_OVERFLOW__ = card.scrollHeight > card.clientHeight + 1;
+  window.__READY__ = true;
+})();
+</script>
+</body>
+</html>
