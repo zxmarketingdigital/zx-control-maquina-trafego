@@ -416,12 +416,11 @@ Se o aluno responder que sim, execute. Se responder que não, ofereça deixar a 
 
 ### Qual script `setup/*.py` roda
 
-Execute você mesmo, nesta ordem:
+Execute você mesmo:
 
-1. `python3 setup/setup_audit.py`
-2. Depois de um relatório sem falhas bloqueantes, `python3 setup/setup_final_s15.py`
+`python3 setup/setup_audit.py`
 
-Se a auditoria encontrar falhas, aplique o auto-fix, repita os checks e só avance quando não houver falha bloqueante. Nunca peça ao aluno para rodar os scripts.
+Esse script já verifica todos os componentes E fecha o Setup (marca `phase_completed = 15`) quando não há falha bloqueante — não existe um segundo script de fechamento separado. Se a auditoria encontrar falhas, aplique o auto-fix, repita os checks e só avance quando não houver falha bloqueante. Nunca peça ao aluno para rodar os scripts.
 
 ### O que valida no final antes de marcar como concluída
 

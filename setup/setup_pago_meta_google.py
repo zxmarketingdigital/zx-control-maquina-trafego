@@ -341,22 +341,24 @@ def executar_meta() -> None:
         escolha = resposta("Conectar Meta agora? [sim/pular]: ", "pular").lower()
         if foi_pulado(escolha):
             print("⏭ Meta Ads pulado; nenhuma credencial foi solicitada.")
-            return
-        metodo = resposta("Método [mcp/system_user_token]: ", "mcp").lower()
-        token_recebido = resposta(
-            "Token já obtido pelo Claude (ou 'pular'; ele não será exibido): "
-        )
-        if metodo in {"system_user_token", "system", "system-user-token"}:
-            token = conectar_via_system_user_token(token_recebido)
-            origem = "system_user_token"
+            metodo = None
         else:
-            token = conectar_via_mcp(token_recebido)
-            origem = "mcp"
-        if token_valido(token, (META_MCP_PLACEHOLDER, META_SYSTEM_USER_PLACEHOLDER)):
-            if atualizar_env(META_ENV, {META_TOKEN_NAME: token, "TOKEN_SOURCE": origem, "STATUS": "connected"}):
-                print(f"✅ Meta conectado; token salvo de forma protegida: {mascarar(token)}")
-        else:
-            print("⚠️ Nenhum token real recebido; a conexão Meta ficou pendente.")
+            metodo = resposta("Método [mcp/system_user_token]: ", "mcp").lower()
+        if metodo is not None:
+            token_recebido = resposta(
+                "Token já obtido pelo Claude (ou 'pular'; ele não será exibido): "
+            )
+            if metodo in {"system_user_token", "system", "system-user-token"}:
+                token = conectar_via_system_user_token(token_recebido)
+                origem = "system_user_token"
+            else:
+                token = conectar_via_mcp(token_recebido)
+                origem = "mcp"
+            if token_valido(token, (META_MCP_PLACEHOLDER, META_SYSTEM_USER_PLACEHOLDER)):
+                if atualizar_env(META_ENV, {META_TOKEN_NAME: token, "TOKEN_SOURCE": origem, "STATUS": "connected"}):
+                    print(f"✅ Meta conectado; token salvo de forma protegida: {mascarar(token)}")
+            else:
+                print("⚠️ Nenhum token real recebido; a conexão Meta ficou pendente.")
 
     if not perfil_existente:
         criar_perfil_interativo()

@@ -393,9 +393,11 @@ def publish_first_article(config):
     print("\nSimulação do primeiro artigo (dry-run; nada será gravado):")
     dry_run = run_command([node_bin, "blog/generator/daily_publish.js", "--dry-run"])
     dry_output = show_command_output(dry_run)
-    if dry_run is None or dry_run.returncode != 0:
+    if dry_run is None or dry_run.returncode not in (0, 3):
         print("O dry-run falhou; a publicação real não será executada.")
         return
+    if dry_run.returncode == 3:
+        print("O primeiro artigo ainda não existe — ele será gerado com o Gemini na publicação real a seguir.")
 
     if not ask_yes_no("O resultado parece correto. Quer publicar de fato o primeiro artigo?", default=False):
         print("Publicação real cancelada; o dry-run não gravou alterações.")

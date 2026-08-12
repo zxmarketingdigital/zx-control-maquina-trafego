@@ -114,11 +114,15 @@ def c_gemini():
     return True, 'GEMINI_API_KEY configurada (valor mascarado)'
 
 
+def _skill_installed(slug):
+    # preflight_guardian é copiado como um único .py, sem SKILL.md — checar o arquivo real.
+    if slug == 'preflight_guardian':
+        return (SKILLS / 'preflight_guardian' / 'preflight_guardian.py').exists()
+    return (SKILLS / slug / 'SKILL.md').exists()
+
+
 def c_skills():
-    installed = [
-        slug for slug in EXPECTED_SKILLS
-        if (SKILLS / slug / 'SKILL.md').exists()
-    ]
+    installed = [slug for slug in EXPECTED_SKILLS if _skill_installed(slug)]
     missing = [slug for slug in EXPECTED_SKILLS if slug not in installed]
     if missing:
         return True, (
@@ -157,6 +161,30 @@ def c_blog():
     if BLOG_BUILD.exists():
         return True, f'build.js encontrado em {BLOG_BUILD}'
     return False, f'build.js não encontrado em {BLOG_BUILD}'
+
+
+TRACKING_JS = OPERACAO / 'scripts' / 'zx-tracking.js'
+
+
+def c_tracking():
+    if TRACKING_JS.exists():
+        return True, f'zx-tracking.js presente em {TRACKING_JS}'
+    return True, 'zx-tracking.js ainda não instalado (Etapa 5 pendente ou pulada) — não bloqueante'
+
+
+BLOG_PUBLIC = Path(__file__).resolve().parent.parent / 'blog' / 'public'
+
+
+def c_blog_published():
+    if not BLOG_PUBLIC.is_dir():
+        return True, 'nenhum artigo publicado ainda (Etapa 6 pendente ou pulada) — não bloqueante'
+    published = [
+        item for item in BLOG_PUBLIC.iterdir()
+        if item.is_dir() and item.name not in ('assets', 'drafts') and (item / 'index.html').exists()
+    ]
+    if published:
+        return True, f'{len(published)} artigo(s) publicado(s)'
+    return True, 'nenhum artigo publicado ainda (Etapa 6 pendente ou pulada) — não bloqueante'
 
 
 def c_base_dirs():
@@ -237,6 +265,8 @@ def main():
     check('Skills opcionais instaladas', c_skills)
     check('Estado do Setup íntegro', c_config)
     check('Motor do blog instalado', c_blog)
+    check('Tracking instalado', c_tracking)
+    check('Blog com artigo publicado', c_blog_published)
     check('Diretórios base', c_base_dirs)
 
     passed = sum(1 for _, ok, _ in CHECKS if ok)

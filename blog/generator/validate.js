@@ -37,7 +37,10 @@ const internalLinks=[...html.matchAll(/href="(\/[^"#]*?)"/g)].map(m=>m[1]),uniq=
 for(const href of uniq){let p=path.join(OUT,href);if(href.endsWith("/"))p=path.join(p,"index.html");if(!fs.existsSync(p))broken.push(href);}
 check("Links internos resolvem",broken.length===0,broken.length?`quebrados: ${broken.join(", ")}`:`${uniq.length} ok`);
 const blogLinks=internalLinks.filter(l=>l.startsWith(BLOG_PATH+"/")&&l!==BLOG_PATH+"/"&&l!==BLOG_PATH+"/"+slug+"/");
-check("Ao menos 1 link interno para outro artigo",blogLinks.length>=1,blogLinks.length?`${blogLinks.length}: ${blogLinks.slice(0,2).join(", ")}`:"nenhum");
+const blogDir=path.join(OUT,BLOG_PATH.replace(/^\/+/,""));
+let siblingCount=0;
+try{siblingCount=fs.readdirSync(blogDir,{withFileTypes:true}).filter(d=>d.isDirectory()&&d.name!==slug&&fs.existsSync(path.join(blogDir,d.name,"index.html"))).length;}catch(e){siblingCount=0;}
+check("Ao menos 1 link interno para outro artigo",siblingCount===0?true:blogLinks.length>=1,siblingCount===0?"não aplicável: nenhum outro artigo publicado ainda":(blogLinks.length?`${blogLinks.length}: ${blogLinks.slice(0,2).join(", ")}`:"nenhum"));
 const products=Object.values(CFG.products||{}),lpProducts=products.filter(p=>p&&p.lp);
 const hasCta=lpProducts.some(p=>html.includes(p.lp));
 check("CTA com LP de produto presente",hasCta,"");

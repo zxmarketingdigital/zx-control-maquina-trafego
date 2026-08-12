@@ -55,6 +55,21 @@ function parseYaml(text) {
 }
 
 function ensureDir(dir) { fs.mkdirSync(dir, { recursive: true }); }
+function ensureFavicon() {
+  const assetsDir = path.join(OUT, "assets");
+  ensureDir(assetsDir);
+  const dest = path.join(assetsDir, "favicon-32.png");
+  if (fs.existsSync(dest)) return;
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAJUlEQVRoge3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAvA0jkAAB1eKJIQAAAABJRU5ErkJggg==";
+  fs.writeFileSync(dest, Buffer.from(base64, "base64"));
+}
+function ensureTrackingScript() {
+  const source = path.resolve(ROOT, "..", "skills", "tracking-canal-vendas", "zx-tracking.js");
+  const dest = path.join(OUT, "tracking.js");
+  if (!fs.existsSync(source)) { console.warn(`[aviso] zx-tracking.js não encontrado em ${source}; tracking.js não copiado.`); return; }
+  if (fs.existsSync(dest) && fs.readFileSync(dest, "utf8") === fs.readFileSync(source, "utf8")) return;
+  fs.copyFileSync(source, dest);
+}
 function slugFromFile(file) { return file.replace(/\.md$/, ""); }
 function absolute(value) { const item = String(value || ""); return /^https?:\/\//i.test(item) ? item : BASE + "/" + item.replace(/^\/+/, ""); }
 
@@ -117,6 +132,8 @@ function buildSitemap(articles) {
 
 function main() {
   ensureDir(BLOG_OUT);
+  ensureFavicon();
+  ensureTrackingScript();
   const only = process.argv[2];
   const files = fs.readdirSync(KW_DIR).filter(f => f.endsWith(".md"));
   if (only) { const wanted = only.replace(/\.md$/,"") + ".md"; if (!files.includes(wanted)) { console.error(`Briefing não encontrado: ${wanted}`); process.exit(1); } }
