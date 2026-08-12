@@ -4,8 +4,10 @@ import argparse
 import getpass
 import json
 import os
+import shutil
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
@@ -92,6 +94,24 @@ def proteger_arquivo(path):
             pass
 
 
+def preservar_se_existente(path):
+    """Antes de uma credencial existente ser sobrescrita, guarda uma cópia do
+    estado original — só na primeira vez (nunca sobrescreve um backup já feito),
+    para que setup_uninstall.py possa restaurar em vez de apagar."""
+    if not path.exists():
+        return
+    ja_tem_backup = list(path.parent.glob(f".s15-backup-{path.name}-*"))
+    if ja_tem_backup:
+        return
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    backup_path = path.parent / f".s15-backup-{path.name}-{timestamp}"
+    try:
+        shutil.copy2(path, backup_path)
+        os.chmod(backup_path, 0o600)
+    except OSError:
+        pass
+
+
 def validar_gemini(key):
     """Confere a chave consultando a lista de modelos da API Gemini."""
     url = "https://generativelanguage.googleapis.com/v1beta/models?key=" + key
@@ -135,6 +155,7 @@ def coletar_gemini():
     existente = ler_env(path).get(chave_nome, "").strip()
 
     if existente:
+        preservar_se_existente(path)
         print("\nGEMINI_API_KEY já encontrada: " + mascarar(existente))
         escolha = ler_resposta("Digite manter ou substituir: ").lower()
         if escolha not in ("s", "sim", "substituir", "trocar", "y", "yes"):
@@ -173,6 +194,7 @@ def coletar_opcional(identificador, titulo, explicacao, instrucao):
     print(f"\n{titulo}")
     print(explicacao)
     if existente:
+        preservar_se_existente(path)
         print(f"Já configurado: {mascarar(existente)}")
         escolha = ler_resposta("Digite manter, substituir ou pular: ").lower()
         if escolha not in ("s", "sim", "substituir", "trocar", "y", "yes"):
