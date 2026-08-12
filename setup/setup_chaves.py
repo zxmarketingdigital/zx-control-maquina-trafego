@@ -4,8 +4,10 @@ import argparse
 import getpass
 import json
 import os
+import shutil
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
@@ -51,6 +53,8 @@ def ler_env(path):
 
 def atualizar_env(path, atualizacoes):
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not preservar_se_existente(path):
+        return False
     try:
         linhas = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     except OSError:
@@ -90,6 +94,37 @@ def proteger_arquivo(path):
             os.chmod(path, 0o600)
         except OSError:
             pass
+
+
+def preservar_se_existente(path):
+    """Antes de um arquivo existente ser sobrescrito, guarda uma cópia do
+    estado original — só na primeira vez (nunca sobrescreve um backup já feito),
+    para que setup_uninstall.py possa restaurar em vez de apagar.
+
+    Retorna True se não havia nada a preservar ou se a preservação teve
+    sucesso (agora ou antes). Retorna False se o arquivo existe e a cópia
+    de segurança falhou — nesse caso o chamador não deve prosseguir com a
+    sobrescrita, para não perder a versão anterior sem backup nenhum."""
+    if not path.exists():
+        return True
+    ja_tem_backup = list(path.parent.glob(f".s15-backup-{path.name}-*"))
+    if ja_tem_backup:
+        return True
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    backup_path = path.parent / f".s15-backup-{path.name}-{timestamp}"
+    tmp_path = path.parent / f".s15-backup-{path.name}-{timestamp}.tmp"
+    try:
+        shutil.copy2(path, tmp_path)
+        os.chmod(tmp_path, 0o600)
+        tmp_path.rename(backup_path)
+        return True
+    except OSError:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        return False
 
 
 def validar_gemini(key):

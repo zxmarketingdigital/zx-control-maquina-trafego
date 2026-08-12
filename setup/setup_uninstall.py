@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 '''Setup 15 — Desinstalador idempotente.'''
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,50 @@ def remove_path(path, label):
     except Exception as exc:
         ERRORS.append(f'{label}: {exc}')
         print(f'  ❌ {label}: não foi possível remover ({exc})')
+
+
+def restore_or_remove_env(filename):
+    path = CONFIG_DIR / filename
+    backups = sorted(CONFIG_DIR.glob(f'.s15-backup-{filename}-*'))
+    if backups:
+        backup_path = backups[0]
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+            shutil.copy2(backup_path, path)
+            os.chmod(path, 0o600)
+            backup_path.unlink()
+            for leftover in backups[1:]:
+                leftover.unlink()
+            print(f'  ↩️  {filename}: restaurado ao estado anterior ao Setup 15 (já existia antes da instalação)')
+        except Exception as exc:
+            ERRORS.append(f'{filename}: falha ao restaurar backup ({exc})')
+            print(f'  ❌ {filename}: não foi possível restaurar o backup ({exc})')
+        return
+    remove_path(path, filename)
+
+
+def restore_or_remove_skill(slug):
+    path = SKILLS_HOME / slug
+    backups = sorted(SKILLS_HOME.glob(f'.s15-backup-{slug}-*'))
+    if backups:
+        oldest = backups[0]
+        try:
+            if path.exists() and path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+            shutil.move(str(oldest), str(path))
+            for leftover in backups[1:]:
+                shutil.rmtree(leftover, ignore_errors=True)
+            print(f'  ↩️  skill {slug}: restaurada ao estado anterior ao Setup 15 (já existia antes da instalação)')
+        except Exception as exc:
+            ERRORS.append(f'skill {slug}: falha ao restaurar backup ({exc})')
+            print(f'  ❌ skill {slug}: não foi possível restaurar o backup ({exc})')
+        return
+    remove_path(path, f'skill {slug}')
 
 
 def read_progress():
@@ -159,14 +204,14 @@ def uninstall(choice):
     print()
     print('Configs e checkpoint:')
     for filename in ENV_FILES:
-        remove_path(CONFIG_DIR / filename, filename)
+        restore_or_remove_env(filename)
     remove_path(PROGRESS, 'setup15_progress.json')
 
     if choice == 'B':
         print()
         print('Skills:')
         for slug in SKILLS:
-            remove_path(SKILLS_HOME / slug, f'skill {slug}')
+            restore_or_remove_skill(slug)
     else:
         print()
         print('Skills: mantidas (escolha [A])')
