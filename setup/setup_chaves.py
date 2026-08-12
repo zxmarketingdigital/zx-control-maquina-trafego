@@ -53,6 +53,8 @@ def ler_env(path):
 
 def atualizar_env(path, atualizacoes):
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not preservar_se_existente(path):
+        return False
     try:
         linhas = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     except OSError:
@@ -95,21 +97,34 @@ def proteger_arquivo(path):
 
 
 def preservar_se_existente(path):
-    """Antes de uma credencial existente ser sobrescrita, guarda uma cópia do
+    """Antes de um arquivo existente ser sobrescrito, guarda uma cópia do
     estado original — só na primeira vez (nunca sobrescreve um backup já feito),
-    para que setup_uninstall.py possa restaurar em vez de apagar."""
+    para que setup_uninstall.py possa restaurar em vez de apagar.
+
+    Retorna True se não havia nada a preservar ou se a preservação teve
+    sucesso (agora ou antes). Retorna False se o arquivo existe e a cópia
+    de segurança falhou — nesse caso o chamador não deve prosseguir com a
+    sobrescrita, para não perder a versão anterior sem backup nenhum."""
     if not path.exists():
-        return
+        return True
     ja_tem_backup = list(path.parent.glob(f".s15-backup-{path.name}-*"))
     if ja_tem_backup:
-        return
+        return True
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
     backup_path = path.parent / f".s15-backup-{path.name}-{timestamp}"
+    tmp_path = path.parent / f".s15-backup-{path.name}-{timestamp}.tmp"
     try:
-        shutil.copy2(path, backup_path)
-        os.chmod(backup_path, 0o600)
+        shutil.copy2(path, tmp_path)
+        os.chmod(tmp_path, 0o600)
+        tmp_path.rename(backup_path)
+        return True
     except OSError:
-        pass
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        return False
 
 
 def validar_gemini(key):
@@ -155,7 +170,6 @@ def coletar_gemini():
     existente = ler_env(path).get(chave_nome, "").strip()
 
     if existente:
-        preservar_se_existente(path)
         print("\nGEMINI_API_KEY já encontrada: " + mascarar(existente))
         escolha = ler_resposta("Digite manter ou substituir: ").lower()
         if escolha not in ("s", "sim", "substituir", "trocar", "y", "yes"):
@@ -194,7 +208,6 @@ def coletar_opcional(identificador, titulo, explicacao, instrucao):
     print(f"\n{titulo}")
     print(explicacao)
     if existente:
-        preservar_se_existente(path)
         print(f"Já configurado: {mascarar(existente)}")
         escolha = ler_resposta("Digite manter, substituir ou pular: ").lower()
         if escolha not in ("s", "sim", "substituir", "trocar", "y", "yes"):

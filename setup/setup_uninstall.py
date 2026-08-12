@@ -65,6 +65,10 @@ def restore_or_remove_env(filename):
     if backups:
         backup_path = backups[0]
         try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
             shutil.copy2(backup_path, path)
             os.chmod(path, 0o600)
             backup_path.unlink()
