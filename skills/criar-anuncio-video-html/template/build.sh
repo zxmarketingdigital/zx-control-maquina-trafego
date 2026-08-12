@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-MUSIC="$SCRIPT_DIR/../assets/trilhas-cc0/arcade-funk.mp3"
+MUSIC="$SCRIPT_DIR/assets/trilhas-cc0/arcade-funk.mp3"
 [ -f "$MUSIC" ] || { echo "ERRO: trilha não encontrada em $MUSIC. Edite a variável MUSIC no build.sh."; exit 1; }
 [ -f timings.sh ] || { echo "ERRO: timings.sh não encontrado. Rode 'node render.mjs' primeiro."; exit 1; }
 AUD=audio; mkdir -p "$AUD"

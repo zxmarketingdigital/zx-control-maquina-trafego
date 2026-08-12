@@ -162,6 +162,7 @@ function generateOgImage(keyword, frontmatter) {
 function generateThumbnail(keyword, frontmatter) {
   const dir = path.join(PUBLIC, 'assets', 'thumbs'), output = path.join(dir, `${keyword.slug}.webp`), temporary = path.join(dir, `.${keyword.slug}.tmp.png`);
   if (fs.existsSync(output)) { log(`thumbnail já existe: assets/thumbs/${keyword.slug}.webp`); return; }
+  if (!fs.existsSync(path.join(GENERATOR, 'thumb_prompt.js'))) { log('geração de thumbnail não incluída nesta instalação — seguindo sem imagem'); return; }
   if (DRY_RUN) { log(`(dry-run) thumbnail seria gerada: assets/thumbs/${keyword.slug}.webp`); return; }
   try {
     const promptModule = require('./thumb_prompt.js');

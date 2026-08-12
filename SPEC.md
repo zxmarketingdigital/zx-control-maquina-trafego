@@ -80,8 +80,7 @@ zx-control-maquina-trafego/
 │   ├── setup_tracking.py        # Etapa 5
 │   ├── setup_blog.py            # Etapa 6 — nicho/tema + fila + deploy + agendamento
 │   ├── setup_maquina.py         # Etapa 7 — orquestrador
-│   ├── setup_audit.py           # Etapa 8 — checks com auto-fix
-│   ├── setup_final_s15.py       # Etapa 8 — fecha phase_completed
+│   ├── setup_audit.py           # Etapa 8 — checks com auto-fix + fecha phase_completed
 │   └── setup_uninstall.py
 ├── skills/                      # copiadas para ~/.claude/skills/ (com backup se customizada)
 ├── scripts/                     # operação do dia a dia do aluno

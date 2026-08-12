@@ -5,9 +5,13 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+RETRYABLE_HTTP_CODES = (429, 500, 502, 503, 504)
+MAX_ATTEMPTS = 3
 
 
 class AgentError(Exception):
@@ -47,7 +51,7 @@ def load_gemini_key():
 
 def call_gemini(prompt):
     key = load_gemini_key()
-    model = os.environ.get('GEMINI_MODEL', 'gemini-2.0-flash')
+    model = os.environ.get('GEMINI_MODEL', 'gemini-flash-latest')
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
@@ -59,24 +63,35 @@ def call_gemini(prompt):
         headers={'Content-Type': 'application/json'},
         method='POST',
     )
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            body = json.loads(response.read().decode('utf-8'))
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            raise AgentError('Gemini recusou a autenticação; verifique GEMINI_API_KEY')
-        if exc.code == 429:
-            raise AgentError('Gemini informou limite de uso atingido; tente novamente mais tarde')
-        raise AgentError(f'Gemini retornou HTTP {exc.code}')
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, 'reason', 'falha de rede')
-        raise AgentError(f'falha de rede ao chamar Gemini: {reason}')
-    except TimeoutError:
-        raise AgentError('tempo esgotado ao chamar Gemini')
-    except json.JSONDecodeError:
-        raise AgentError('Gemini retornou uma resposta que não é JSON')
-    except OSError as exc:
-        raise AgentError(f'erro de comunicação com Gemini: {exc}')
+    body = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                body = json.loads(response.read().decode('utf-8'))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                raise AgentError('Gemini recusou a autenticação; verifique GEMINI_API_KEY')
+            if exc.code not in RETRYABLE_HTTP_CODES or attempt == MAX_ATTEMPTS:
+                if exc.code == 429:
+                    raise AgentError('Gemini informou limite de uso atingido; tente novamente mais tarde')
+                raise AgentError(f'Gemini retornou HTTP {exc.code}')
+            time.sleep(0.5 * attempt)
+        except urllib.error.URLError as exc:
+            if attempt == MAX_ATTEMPTS:
+                reason = getattr(exc, 'reason', 'falha de rede')
+                raise AgentError(f'falha de rede ao chamar Gemini: {reason}')
+            time.sleep(0.5 * attempt)
+        except TimeoutError:
+            if attempt == MAX_ATTEMPTS:
+                raise AgentError('tempo esgotado ao chamar Gemini')
+            time.sleep(0.5 * attempt)
+        except json.JSONDecodeError:
+            raise AgentError('Gemini retornou uma resposta que não é JSON')
+        except OSError as exc:
+            if attempt == MAX_ATTEMPTS:
+                raise AgentError(f'erro de comunicação com Gemini: {exc}')
+            time.sleep(0.5 * attempt)
 
     try:
         return body['candidates'][0]['content']['parts'][0]['text']
