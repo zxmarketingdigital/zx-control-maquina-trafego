@@ -422,16 +422,29 @@ def credencial_google(valores: dict[str, str]) -> str:
     return ""
 
 
-def executar_google() -> None:
+def executar_google() -> str:
+    """Devolve o estado final: 'connected', 'skipped' ou 'pending'.
+
+    Quem chama precisa distinguir "o aluno não quis" de "o aluno quis e não
+    deu certo": tratar os dois como sucesso esconde uma conexão que ele pediu
+    e que não existe.
+    """
     valores = ler_env(GOOGLE_ENV)
     acesso_existente = valores.get(GOOGLE_TOKEN_NAME, "").strip()
+    refresh_existente = valores.get("GOOGLE_ADS_REFRESH_TOKEN", "").strip()
     token_existente = credencial_google(valores)
-    customer_existente = normalizar_customer_id(valores.get("GOOGLE_ADS_CUSTOMER_ID", ""))
+    # Valida o valor BRUTO do arquivo. Normalizar antes faria um
+    # GOOGLE_ADS_CUSTOMER_ID=1234567890x gravado à mão passar como conta boa,
+    # e o setup instalaria as skills apontando para uma conta não confirmada.
+    customer_bruto = valores.get("GOOGLE_ADS_CUSTOMER_ID", "").strip()
+    customer_existente = (
+        normalizar_customer_id(customer_bruto) if customer_id_valido(customer_bruto) else ""
+    )
     perfil_existente = carregar_perfil(GOOGLE_PROFILE)
 
     instalacao_valida = (
         token_valido(token_existente, (GOOGLE_PLACEHOLDER,))
-        and customer_id_valido(customer_existente)
+        and bool(customer_existente)
         and perfil_existente
     )
     if instalacao_valida:
@@ -442,7 +455,12 @@ def executar_google() -> None:
             f"(credencial {mascarar(token_existente)}; conta {mascarar(customer_existente)})."
         )
         instalar_skills_google()
-        return
+        return "connected"
+    if customer_bruto and not customer_existente:
+        print(
+            "⚠️ GOOGLE_ADS_CUSTOMER_ID gravado não tem o formato de 10 dígitos; "
+            "ele não será reaproveitado e a conta precisa ser informada de novo."
+        )
 
     if token_valido(token_existente, (GOOGLE_PLACEHOLDER,)):
         proteger(GOOGLE_ENV)
@@ -456,7 +474,7 @@ def executar_google() -> None:
     if foi_pulado(escolha):
         atualizar_env(GOOGLE_ENV, {"STATUS": "skipped"})
         print("⏭ Google Ads pulado; a conexão continua opcional.")
-        return
+        return "skipped"
 
     customer_informado = resposta(
         "Customer ID da conta Google Ads (10 dígitos, hífens aceitos): "
@@ -468,25 +486,39 @@ def executar_google() -> None:
             "⚠️ Customer ID inválido. Informe os 10 dígitos da conta ao conectar o Google Ads "
             "na Etapa 4; nenhuma conta padrão será usada."
         )
-        return
+        return "pending"
     customer_id = normalizar_customer_id(customer_informado)
 
+    login_existente = valores.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "").strip()
+    if login_existente:
+        print(f"ℹ️ MCC já configurada: {mascarar(login_existente)} (Enter mantém).")
     login_informado = resposta(
         "Login customer ID da MCC (opcional; Enter se a conta não estiver sob MCC): "
     )
     if login_informado and not customer_id_valido(login_informado):
         atualizar_env(GOOGLE_ENV, {"STATUS": "pending"})
         print("⚠️ Login customer ID inválido; use 10 dígitos ou deixe em branco.")
-        return
+        return "pending"
+    # Enter PRESERVA a MCC já salva, igual ao refresh token: o prompt pergunta
+    # "tem algo novo?", não "apague o que existe". Quem preserva é atualizar_env,
+    # que só reescreve as chaves recebidas — por isso login_id vazio simplesmente
+    # não entra em `atualizacoes`, em vez de gravar "". Para tirar a conta de uma
+    # MCC, o aluno remove a linha GOOGLE_ADS_LOGIN_CUSTOMER_ID do google_ads.env;
+    # apagar em silêncio a cada execução quebraria quem opera sob MCC e só
+    # reconfirmou a conta.
     login_id = normalizar_customer_id(login_informado) if login_informado else ""
 
     token_recebido = resposta(
         "Access token já obtido pelo Claude (ou 'pular'; ele não será exibido): "
     )
     token = conectar_google_ads(token_recebido) if token_recebido else acesso_existente
-    refresh_token = resposta(
+    refresh_recebido = resposta(
         "Refresh token Google Ads já obtido pelo Claude (opcional neste stub): "
     )
+    # Enter no prompt significa "não tenho nada novo", não "apague o que existe":
+    # sem cair de volta no refresh já salvo, um aluno que só tinha refresh token
+    # ficava pendente mesmo possuindo credencial utilizável.
+    refresh_token = refresh_recebido if refresh_recebido else refresh_existente
     acesso_ok = token_valido(token, (GOOGLE_PLACEHOLDER,))
     refresh_ok = token_valido(refresh_token, (GOOGLE_PLACEHOLDER,))
     # Refresh token sozinho TAMBÉM conecta: ele renova o access token. Exigir
@@ -495,7 +527,7 @@ def executar_google() -> None:
     if not acesso_ok and not refresh_ok:
         atualizar_env(GOOGLE_ENV, {"STATUS": "pending"})
         print("⚠️ Nenhuma credencial real recebida; Google Ads ficou pendente.")
-        return
+        return "pending"
 
     atualizacoes = {"GOOGLE_ADS_CUSTOMER_ID": customer_id, "STATUS": "connected"}
     if acesso_ok:
@@ -508,7 +540,7 @@ def executar_google() -> None:
         # Sem gravar o .env não há conexão nenhuma: o próximo passo leria o
         # arquivo antigo e operaria com a conta errada.
         print("⚠️ Não foi possível gravar google_ads.env; Google Ads ficou pendente.")
-        return
+        return "pending"
     exibido = mascarar(token) if acesso_ok else "via refresh token"
     print(f"✅ Google Ads conectado; credenciais salvas de forma protegida: acesso {exibido}")
 
@@ -518,6 +550,7 @@ def executar_google() -> None:
         proteger(GOOGLE_PROFILE)
         print("✅ google_perfil.json existente e válido foi reaproveitado.")
     instalar_skills_google()
+    return "connected"
 
 
 def main(argv=None) -> int:
@@ -532,15 +565,26 @@ def main(argv=None) -> int:
         print("⏭ Meta Ads pulado por opção explícita.")
     else:
         executar_meta()
+    estado_google = "skipped"
     if args.skip_google:
         print("⏭ Google Ads pulado por opção explícita.")
     else:
-        executar_google()
+        estado_google = executar_google()
 
     print(
         "\ncpa/roas vêm do PIXEL, que pode contar PIX gerado e ainda não pago — sempre cruzar "
         "com venda paga real antes de cortar budget de qualquer campanha."
     )
+    if estado_google == "pending":
+        # O aluno PEDIU para conectar e não conectou. Sair com 0 aqui faria o
+        # Claude reportar a Etapa 4 como concluída e seguir para a Etapa 5 com
+        # uma integração que o aluno acha que está de pé.
+        print(
+            "⚠️ Etapa 4 incompleta: a conexão com o Google Ads foi solicitada e ficou PENDENTE. "
+            "Nenhuma campanha foi publicada. Corrija a conta ou a credencial e rode a etapa de novo; "
+            "se preferir deixar para depois, responda 'pular' quando ela perguntar."
+        )
+        return 1
     print("✅ Etapa 4 concluída; nenhuma campanha foi publicada ou ativada por este script.")
     return 0
 

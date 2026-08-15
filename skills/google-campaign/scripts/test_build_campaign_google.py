@@ -253,10 +253,20 @@ class BuildCampaignGoogleTest(unittest.TestCase):
         self.assertIn("substituiu", entries[0])
 
         chave = entries[0]["campaign_key"]
+        tentativa_atual = entries[0]["attempt_id"]
+        tentativa_antiga = entries[0]["substituiu"][0]["attempt_id"]
+        self.assertNotEqual(tentativa_atual, tentativa_antiga)
+
+        registrar = ["--registrar", "--campaign-key", chave, "--campaign-id", "555"]
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(
-                build.main(["--registrar", "--campaign-key", chave, "--campaign-id", "555"]), 0
-            )
+            # Sem --attempt-id não dá para saber se os IDs são da tentativa viva
+            # ou de um retorno atrasado do MCP referente à tentativa substituída.
+            self.assertEqual(build.main(registrar), 1)
+            self.assertEqual(build.main(registrar + ["--attempt-id", tentativa_antiga]), 1)
+            self.assertEqual(build.main(registrar + ["--attempt-id", tentativa_atual]), 0)
+        self.assertEqual(
+            json.loads(self.ledger.read_text(encoding="utf-8"))[0]["campaign_id"], "555"
+        )
 
     def test_registrar_nao_herda_ids_de_outra_campanha(self):
         args = ["--produto", "teste-google", "--budget", "30", "--conta", "1234567890"]
@@ -329,6 +339,77 @@ class BuildCampaignGoogleTest(unittest.TestCase):
         entries = json.loads(self.ledger.read_text(encoding="utf-8"))
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["status"], "planned")
+
+    def test_reserva_da_chave_acontece_dentro_do_lock(self):
+        """Dois planejamentos simultâneos da MESMA chave: só um pode reservar.
+
+        Se a checagem de duplicidade acontecer antes do lock, os dois passam,
+        os dois planos vão para o MCP e nascem duas campanhas iguais na conta
+        do aluno — com uma única entrada no ledger para os dois.
+        """
+        leitura_original = build._read_ledger
+
+        def leitura_lenta():
+            entradas = leitura_original()
+            time.sleep(0.2)
+            return entradas
+
+        resultados = []
+
+        def planejar():
+            try:
+                build.append_ledger(
+                    {"campaign_key": "mesma-chave", "produto": "teste-google"}
+                )
+                resultados.append("reservou")
+            except build.ConfigError:
+                resultados.append("recusado")
+
+        with patch.object(build, "_read_ledger", leitura_lenta):
+            threads = [threading.Thread(target=planejar) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+                self.assertFalse(thread.is_alive(), "o lock travou a reserva")
+
+        self.assertEqual(
+            sorted(resultados),
+            ["recusado", "reservou"],
+            "a segunda reserva passou: a checagem de duplicidade está fora do lock",
+        )
+        self.assertEqual(len(json.loads(self.ledger.read_text(encoding="utf-8"))), 1)
+
+    def test_cadencia_com_numero_sem_moeda_reprova(self):
+        # Sem símbolo de moeda o regex monetário não casa, mas a promessa é a mesma.
+        for texto in ("Receba 100 por dia", "Receba 100/dia", "Ate 500 ao mes"):
+            self.assertTrue(build.validar_copy([texto], 37), texto)
+        # Cadência sem número nenhum não é promessa de ganho.
+        self.assertEqual(build.validar_copy(["Aulas novas por semana"], 37), [])
+
+    def test_login_customer_id_da_mcc_chega_ao_plano(self):
+        plan = build.build_plan(
+            self.product,
+            "teste-google",
+            build.parse_budget("30"),
+            "1234567890",
+            run_stamp="20240101010101",
+            login_customer_id="9999999999",
+        )
+        # A conta do ALUNO continua sendo a de operação; a MCC só autentica.
+        self.assertEqual(plan["customer_id"], "1234567890")
+        self.assertEqual(plan["login_customer_id"], "9999999999")
+        self.assertTrue(any("9999999999" in nota for nota in plan["gotchas"]))
+
+    def test_sem_mcc_o_plano_nao_inventa_login_customer_id(self):
+        plan = build.build_plan(
+            self.product,
+            "teste-google",
+            build.parse_budget("30"),
+            "1234567890",
+            run_stamp="20240101010101",
+        )
+        self.assertNotIn("login_customer_id", plan)
 
 
 if __name__ == "__main__":

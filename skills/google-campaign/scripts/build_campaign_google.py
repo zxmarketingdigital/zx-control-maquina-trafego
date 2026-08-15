@@ -13,6 +13,7 @@ import json
 import re
 import sys
 import unicodedata
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -226,8 +227,13 @@ def _write_ledger(entries):
     temporary.replace(ledger_path)
 
 
-def append_ledger(entry):
-    """Grava a entrada mantendo NO MÁXIMO uma por campaign_key.
+def append_ledger(entry, forcar=False):
+    """Reserva a campaign_key e grava, tudo DENTRO do mesmo lock.
+
+    A checagem de duplicidade precisa acontecer aqui, e não antes: conferir
+    fora do lock deixa dois planejamentos simultâneos verem "não existe",
+    emitirem o mesmo plano e criarem DUAS campanhas de verdade no Google —
+    o ledger guardaria só uma e a outra ficaria gastando sem rastro.
 
     Replanejar com --forcar substitui a tentativa anterior em vez de anexar
     uma segunda: duas entradas com a mesma chave deixariam o --registrar sem
@@ -235,16 +241,29 @@ def append_ledger(entry):
     """
     with _ledger_lock():
         entries = _read_ledger()
-        anteriores = [e for e in entries if e.get("campaign_key") == entry.get("campaign_key")]
+        chave = entry.get("campaign_key")
+        anteriores = [e for e in entries if e.get("campaign_key") == chave]
+        if anteriores and not forcar:
+            fail(
+                f"Campanha já planejada para esta campaign_key: {chave}. "
+                "Use --forcar somente se tiver conferido o ledger — ele SUBSTITUI "
+                "a tentativa anterior (guardada no campo 'substituiu')."
+            )
+        entry = dict(entry)
         if anteriores:
-            entry = dict(entry)
             entry["substituiu"] = [
-                {chave: anterior.get(chave) for chave in ("status", "campaign_id", "ad_group_id", "ad_id", "created_at")}
+                {
+                    chave_campo: anterior.get(chave_campo)
+                    for chave_campo in (
+                        "status", "attempt_id", "campaign_id", "ad_group_id", "ad_id", "created_at",
+                    )
+                }
                 for anterior in anteriores
             ]
-            entries = [e for e in entries if e.get("campaign_key") != entry.get("campaign_key")]
+            entries = [e for e in entries if e.get("campaign_key") != chave]
         entries.append(entry)
         _write_ledger(entries)
+    return entry
 
 
 def campaign_key(produto, keywords, budget, customer_id=""):
@@ -268,6 +287,18 @@ def campaign_key(produto, keywords, budget, customer_id=""):
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _attempt_id():
+    """Identificador curto e ÚNICO desta tentativa de planejamento.
+
+    Deliberadamente aleatório, não derivado de chave + horário: dois
+    planejamentos da mesma chave no mesmo segundo gerariam o mesmo hash, e aí
+    o --registrar voltaria a aceitar como válido o retorno atrasado do MCP da
+    tentativa substituída — que é exatamente o que este campo existe para
+    impedir.
+    """
+    return uuid.uuid4().hex[:12]
 
 
 def existing_campaign(key, ledger=None):
@@ -312,6 +343,15 @@ def validar_copy(textos, preco):
                 violations.append((original, termo))
 
         cadencia_encontrada = _cadencia_em(normalizado)
+        # Cadência + qualquer número é promessa de recebimento recorrente,
+        # tenha ou não símbolo de moeda: "Receba 100 por dia" não casa com
+        # nenhum padrão monetário e passava. O gate é fail-closed: se a copy
+        # legítima falar de tempo ("15 min por dia"), reescrever o título custa
+        # um minuto — um anúncio reprovado por ganho custa a conta do aluno.
+        if cadencia_encontrada and re.search(r"\d", normalizado):
+            violations.append(
+                (original, f"número com cadência {cadencia_encontrada!r}")
+            )
 
         for match in PADRAO_MONETARIO.finditer(original):
             moeda = match.group("moeda") or match.group("moeda_pos") or ""
@@ -465,7 +505,16 @@ def _validate_copy_or_fail(titles, descriptions, price):
         fail("\n".join(lines))
 
 
-def build_plan(product, produto, budget, customer_id, cpc_bid=None, profile=None, run_stamp=None):
+def build_plan(
+    product,
+    produto,
+    budget,
+    customer_id,
+    cpc_bid=None,
+    profile=None,
+    run_stamp=None,
+    login_customer_id="",
+):
     """Valida o produto e devolve o plano completo para os sete estágios."""
     titles, descriptions, keywords = _validate_lists(product)
     price = _price(product)
@@ -637,8 +686,12 @@ def build_plan(product, produto, budget, customer_id, cpc_bid=None, profile=None
         ]
     )
 
-    return {
+    plano = {
         "campaign_key": key,
+        # Identifica ESTA tentativa. A campaign_key sozinha é estável entre
+        # replanejamentos: sem o attempt_id, um retorno atrasado do MCP de uma
+        # tentativa já substituída seria gravado na tentativa nova.
+        "attempt_id": _attempt_id(),
         "customer_id": customer_id,
         "produto": produto,
         "run_stamp": stamp,
@@ -650,6 +703,17 @@ def build_plan(product, produto, budget, customer_id, cpc_bid=None, profile=None
         ],
         "passos": passos,
     }
+    if login_customer_id:
+        # Conta sob MCC: sem informar a conta gestora, a operação pode falhar
+        # com CUSTOMER_NOT_FOUND mesmo com o customer_id certo. Ele é contexto
+        # de acesso, não muda a conta em que a campanha é criada.
+        plano["login_customer_id"] = login_customer_id
+        plano["gotchas"].insert(
+            0,
+            f"Conta sob MCC: use login customer id {login_customer_id} como conta gestora "
+            f"ao chamar o MCP; a campanha continua sendo criada em {customer_id}.",
+        )
+    return plano
 
 
 def _load_profile():
@@ -695,6 +759,23 @@ def _register(args):
                 "registrar às cegas associaria os IDs à campanha errada."
             )
         entry = matches[0]
+        # Esta chave já foi replanejada: existe mais de uma tentativa real no
+        # mundo, e um retorno atrasado do MCP pode ser da tentativa antiga.
+        # Sem o attempt_id não há como distinguir, e registrar às cegas marcaria
+        # como criada uma campanha que pertence à tentativa substituída.
+        if entry.get("substituiu") and not args.attempt_id:
+            fail(
+                f"Esta campaign_key foi replanejada ({len(entry['substituiu'])} tentativa(s) "
+                f"substituída(s)). Informe --attempt-id {entry.get('attempt_id')} para confirmar "
+                "que os IDs são desta tentativa, e não da anterior."
+            )
+        if args.attempt_id and args.attempt_id != entry.get("attempt_id"):
+            fail(
+                f"attempt-id não corresponde à tentativa ativa desta campaign_key. "
+                f"Ativa: {entry.get('attempt_id')}. Informado: {args.attempt_id}. "
+                "Se estes IDs são de uma tentativa anterior, não registre aqui: "
+                "a campanha antiga precisa ser conferida e removida no painel."
+            )
         # Campanha diferente da registrada antes = OUTRA tentativa. Grupo e
         # anúncio da tentativa anterior pertencem à campanha antiga: mantê-los
         # aqui montaria um registro Frankenstein (campanha nova + grupo velho),
@@ -732,6 +813,7 @@ def main(argv=None):
     parser.add_argument("--produto")
     parser.add_argument("--budget")
     parser.add_argument("--conta")
+    parser.add_argument("--login-conta", default="")
     parser.add_argument("--cpc-bid")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--forcar", action="store_true")
@@ -740,6 +822,7 @@ def main(argv=None):
     parser.add_argument("--campaign-id")
     parser.add_argument("--ad-group-id")
     parser.add_argument("--ad-id")
+    parser.add_argument("--attempt-id", default="")
     args = parser.parse_args(argv)
 
     try:
@@ -758,6 +841,8 @@ def main(argv=None):
                 "na Etapa 4 (GOOGLE_ADS_CUSTOMER_ID)."
             )
         account = _customer_id(account_value)
+        login_value = args.login_conta or env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "")
+        login_account = _customer_id(login_value) if login_value.strip() else ""
         cpc_bid = parse_budget(args.cpc_bid) if args.cpc_bid is not None else None
         plan = build_plan(
             product,
@@ -766,29 +851,30 @@ def main(argv=None):
             account,
             cpc_bid=cpc_bid,
             profile=_load_profile(),
+            login_customer_id=login_account,
         )
 
         key = plan["campaign_key"]
-        if not args.dry_run and existing_campaign(key) is not None and not args.forcar:
-            fail(
-                f"Campanha já planejada para esta campaign_key: {key}. "
-                "Use --forcar somente se tiver conferido o ledger — ele SUBSTITUI "
-                "a tentativa anterior (guardada no campo 'substituiu')."
-            )
-
-        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        # A reserva da chave acontece DENTRO do lock, em append_ledger. Conferir
+        # aqui e gravar depois deixaria dois planejamentos simultâneos passarem
+        # e criarem duas campanhas de verdade — o ledger guardaria uma só.
         if not args.dry_run:
             append_ledger(
                 {
                     "campaign_key": key,
+                    "attempt_id": plan["attempt_id"],
                     "produto": args.produto,
                     "customer_id": account,
                     "budget": str(budget),
                     "keywords": product["google_keywords"],
                     "status": "planned",
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                }
+                },
+                forcar=args.forcar,
             )
+        # O plano só é impresso depois da reserva: imprimir antes entregaria ao
+        # aluno passos executáveis de uma campanha que o ledger vai recusar.
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
     except ConfigError as exc:
         print(f"ERRO: {exc}", file=sys.stderr)

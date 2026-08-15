@@ -43,12 +43,16 @@ class FluxoGoogleTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def rodar(self, respostas):
+        env, saida, _ = self.rodar_com_estado(respostas)
+        return env, saida
+
+    def rodar_com_estado(self, respostas):
         fila = list(respostas)
         self.setup.resposta = lambda prompt, default="": (fila.pop(0) if fila else default)
         saida = io.StringIO()
         with contextlib.redirect_stdout(saida):
-            self.setup.executar_google()
-        return self.setup.ler_env(self.setup.GOOGLE_ENV), saida.getvalue()
+            estado = self.setup.executar_google()
+        return self.setup.ler_env(self.setup.GOOGLE_ENV), saida.getvalue(), estado
 
     def test_pular_nao_instala_skill_nem_pede_perfil(self):
         env, _ = self.rodar(["pular"])
@@ -98,6 +102,116 @@ class FluxoGoogleTest(unittest.TestCase):
         # parametrizar sem preservar isso que sobrescreveu um perfil real.
         self.assertEqual(self.setup.salvar_perfil.__defaults__, (self.setup.META_PROFILE,))
         self.assertEqual(self.setup.carregar_perfil.__defaults__, (self.setup.META_PROFILE,))
+
+    def test_customer_id_invalido_no_env_nao_e_reaproveitado(self):
+        # Normalizar antes de validar transformaria o lixo gravado à mão em
+        # conta boa, e as skills seriam instaladas apontando para ela.
+        self.setup.atualizar_env(
+            self.setup.GOOGLE_ENV,
+            {
+                "GOOGLE_ADS_CUSTOMER_ID": "1234567890x",
+                "GOOGLE_ADS_REFRESH_TOKEN": "1//refresh-real",
+            },
+        )
+        self.setup.salvar_perfil(
+            {
+                "objectives": ["vendas"],
+                "metrics": [{"name": "cpa", "target": 80.0}],
+                "primary_kpi": "cpa",
+            },
+            self.setup.GOOGLE_PROFILE,
+        )
+        env, saida, estado = self.rodar_com_estado(["pular"])
+        self.assertEqual(estado, "skipped")
+        self.assertEqual(self.instaladas, [], "instalou skill com conta não confirmada")
+        self.assertIn("10 dígitos", saida)
+        self.assertEqual(env.get("GOOGLE_ADS_CUSTOMER_ID"), "1234567890x")
+
+    def test_refresh_token_existente_e_reaproveitado_sem_redigitar(self):
+        self.setup.atualizar_env(self.setup.GOOGLE_ENV, {"GOOGLE_ADS_REFRESH_TOKEN": "1//ja-salvo"})
+        # Enter nos dois prompts de credencial: "não tenho nada novo".
+        env, _, estado = self.rodar_com_estado(
+            ["sim", "123-456-7890", "", "", "", "vendas", "cpa=80", "cpa"]
+        )
+        self.assertEqual(estado, "connected")
+        self.assertEqual(env.get("STATUS"), "connected")
+        self.assertEqual(env.get("GOOGLE_ADS_REFRESH_TOKEN"), "1//ja-salvo")
+
+    def test_login_customer_id_da_mcc_e_gravado(self):
+        env, _, estado = self.rodar_com_estado(
+            ["sim", "123-456-7890", "999-999-9999", "", "1//refresh", "vendas", "cpa=80", "cpa"]
+        )
+        self.assertEqual(estado, "connected")
+        self.assertEqual(env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID"), "9999999999")
+
+    def test_segunda_execucao_com_so_refresh_token_reaproveita_a_instalacao(self):
+        """Refresh-only já conectado NÃO pode ser rebaixado para skipped.
+
+        credencial_google devolve o refresh quando não há access token, então
+        instalacao_valida enxerga a conexão e nem chega a perguntar. Se alguém
+        fizer instalacao_valida olhar só o access token, o aluno que conectou
+        por refresh volta a ser tratado como desconectado e um 'pular' apaga
+        uma conexão que funcionava.
+        """
+        self.setup.atualizar_env(
+            self.setup.GOOGLE_ENV,
+            {
+                "GOOGLE_ADS_REFRESH_TOKEN": "1//refresh-real",
+                "GOOGLE_ADS_CUSTOMER_ID": "1234567890",
+                "STATUS": "connected",
+            },
+        )
+        self.setup.salvar_perfil(
+            {
+                "objectives": ["vendas"],
+                "metrics": [{"name": "cpa", "target": 80.0}],
+                "primary_kpi": "cpa",
+            },
+            self.setup.GOOGLE_PROFILE,
+        )
+        # Nenhuma resposta na fila: se o fluxo perguntar algo, cai no default
+        # 'pular' e o teste pega o rebaixamento.
+        env, saida, estado = self.rodar_com_estado([])
+        self.assertEqual(estado, "connected")
+        self.assertEqual(env.get("STATUS"), "connected")
+        self.assertNotIn("1//refresh-real", saida)
+        self.assertEqual(
+            sorted(self.instaladas), ["google-metrics-fetcher", "google-performance-analyzer"]
+        )
+
+    def test_enter_preserva_a_mcc_ja_salva(self):
+        """Trava a semântica de merge do .env, não um ramo do executar_google.
+
+        Hoje a preservação vem de atualizar_env, que só reescreve as chaves
+        recebidas — este teste fica verde mesmo mexendo no cálculo do login_id.
+        Ele existe para o dia em que alguém passar a gravar a chave sempre (com
+        "" quando o aluno der Enter) ou tornar atualizar_env destrutivo: aí a
+        MCC some do env e a próxima campanha de quem opera sob conta gestora
+        falha com CUSTOMER_NOT_FOUND.
+        """
+        self.setup.atualizar_env(
+            self.setup.GOOGLE_ENV, {"GOOGLE_ADS_LOGIN_CUSTOMER_ID": "9999999999"}
+        )
+        env, _, estado = self.rodar_com_estado(
+            ["sim", "123-456-7890", "", "", "1//refresh", "vendas", "cpa=80", "cpa"]
+        )
+        self.assertEqual(estado, "connected")
+        self.assertEqual(env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID"), "9999999999")
+
+    def test_main_falha_quando_conexao_pedida_fica_pendente(self):
+        # Pendente é diferente de pulado: o aluno PEDIU para conectar. Sair 0
+        # aqui faria a Etapa 4 ser reportada como concluída sem conexão.
+        self.setup.executar_meta = lambda: None
+        self.setup.executar_google = lambda: "pending"
+        with contextlib.redirect_stdout(io.StringIO()) as saida:
+            self.assertEqual(self.setup.main([]), 1)
+        self.assertIn("PENDENTE", saida.getvalue())
+
+        self.setup.executar_google = lambda: "skipped"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.setup.main([]), 0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.setup.main(["--skip-google"]), 0)
 
     def test_developer_token_nao_conta_como_credencial(self):
         # Ele identifica a aplicação, não o dono da conta.
