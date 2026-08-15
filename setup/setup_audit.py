@@ -10,6 +10,8 @@ SKILLS = Path.home() / '.claude' / 'skills'
 PROGRESS = CONFIG_DIR / 'setup15_progress.json'
 CONFIG = CONFIG_DIR / 'config.json'
 GEMINI_ENV = CONFIG_DIR / 'gemini.env'
+GOOGLE_ENV = CONFIG_DIR / 'google_ads.env'
+GOOGLE_PROFILE = CONFIG_DIR / 'google_perfil.json'
 BLOG_BUILD = Path(__file__).resolve().parent.parent / 'blog' / 'generator' / 'build.js'
 
 EXPECTED_SKILLS = [
@@ -24,9 +26,13 @@ EXPECTED_SKILLS = [
     'criar-anuncio-video-gemini-omni',
     'meta-metrics-fetcher',
     'meta-performance-analyzer',
+    'google-metrics-fetcher',
+    'google-performance-analyzer',
     'preflight_guardian',
     'meta-estrategista',
     'meta-campaign',
+    'google-estrategista',
+    'google-campaign',
 ]
 
 BASE_DIRS = [
@@ -112,6 +118,71 @@ def c_gemini():
     if not value or value.lower() in placeholders or value.startswith('<'):
         return False, 'GEMINI_API_KEY ausente ou ainda em formato de placeholder'
     return True, 'GEMINI_API_KEY configurada (valor mascarado)'
+
+
+def _google_env_summary():
+    status = 'não informado'
+    credential_keys = {
+        'GOOGLE_ADS_CUSTOMER_ID',
+        'GOOGLE_ADS_LOGIN_CUSTOMER_ID',
+        'GOOGLE_ADS_REFRESH_TOKEN',
+        'GOOGLE_ADS_ACCESS_TOKEN',
+        'GOOGLE_ADS_DEVELOPER_TOKEN',
+    }
+    present = set()
+    content = GOOGLE_ENV.read_text(encoding='utf-8')
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition('=')
+        if not separator:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1].strip()
+        if key == 'STATUS':
+            status = value or 'vazio'
+        elif key in credential_keys and value:
+            present.add(key)
+    return status, len(present)
+
+
+def c_google():
+    """Audita o Google sem bloquear o fechamento do Setup e sem expor segredos."""
+    if not GOOGLE_ENV.exists():
+        return True, 'Google Ads não conectado (opcional) — não bloqueante'
+
+    messages = []
+    mode = oct(GOOGLE_ENV.stat().st_mode)[-3:]
+    if mode != '600':
+        messages.append(
+            f'aviso: google_ads.env está com permissão {mode}; execute novamente a Etapa 4 para corrigir para 600'
+        )
+
+    try:
+        status, credential_count = _google_env_summary()
+        messages.append(f'STATUS={status}')
+        messages.append(f'{credential_count} credencial(is) presente(s), valores não exibidos')
+    except Exception as exc:
+        messages.append(f'google_ads.env não pôde ser lido: {exc}')
+
+    if not GOOGLE_PROFILE.exists():
+        messages.append('google_perfil.json ausente')
+    else:
+        try:
+            profile = json.loads(GOOGLE_PROFILE.read_text(encoding='utf-8'))
+            if isinstance(profile, dict):
+                messages.append('google_perfil.json existe e é válido')
+            else:
+                messages.append('google_perfil.json existe, mas não contém um objeto JSON válido')
+        except Exception as exc:
+            messages.append(f'google_perfil.json inválido: {exc}')
+
+    return True, 'Google Ads opcional — não bloqueante; ' + '; '.join(messages)
 
 
 def _skill_installed(slug):
@@ -263,6 +334,7 @@ def main():
     check('Checkpoint setup15 válido', c_progress)
     check('Chave Gemini configurada', c_gemini)
     check('Skills opcionais instaladas', c_skills)
+    check('Google Ads configurado', c_google)
     check('Estado do Setup íntegro', c_config)
     check('Motor do blog instalado', c_blog)
     check('Tracking instalado', c_tracking)

@@ -12,6 +12,7 @@ import datetime as dt
 import filecmp
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -26,8 +27,10 @@ CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
 META_ENV = CONFIG_DIR / "meta.env"
 META_PROFILE = CONFIG_DIR / "meta_perfil.json"
 GOOGLE_ENV = CONFIG_DIR / "google_ads.env"
+GOOGLE_PROFILE = CONFIG_DIR / "google_perfil.json"
 
 META_SKILLS = ("meta-metrics-fetcher", "meta-performance-analyzer")
+GOOGLE_SKILLS = ("google-metrics-fetcher", "google-performance-analyzer")
 META_TOKEN_NAME = "META_ACCESS_TOKEN"
 GOOGLE_TOKEN_NAME = "GOOGLE_ADS_ACCESS_TOKEN"
 META_MCP_PLACEHOLDER = "<META_TOKEN_OBTIDO_VIA_MCP>"
@@ -175,8 +178,13 @@ def instalar_skill(slug: str) -> str:
 
 
 def token_valido(valor: str, placeholders: tuple[str, ...] = ()) -> bool:
+    # O prompt oferece 'pular' como resposta: sem esta guarda a palavra vira o
+    # token e o .env fica STATUS=connected sem credencial nenhuma, fazendo a
+    # auditoria dizer ao aluno que a conta está conectada quando não está.
     valor = (valor or "").strip()
-    return bool(valor) and valor not in placeholders and not valor.startswith("<")
+    if not valor or foi_pulado(valor):
+        return False
+    return valor not in placeholders and not valor.startswith("<")
 
 
 def conectar_via_mcp(token: str = "") -> str:
@@ -207,11 +215,11 @@ def conectar_google_ads(token: str = "") -> str:
     return token.strip() if token and token.strip() else GOOGLE_PLACEHOLDER
 
 
-def carregar_perfil() -> Optional[dict]:
-    if not META_PROFILE.exists():
+def carregar_perfil(path: Path = META_PROFILE) -> Optional[dict]:
+    if not path.exists():
         return None
     try:
-        perfil = json.loads(META_PROFILE.read_text(encoding="utf-8"))
+        perfil = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(perfil, dict):
@@ -222,16 +230,20 @@ def carregar_perfil() -> Optional[dict]:
     return perfil if objetivos and metricas and kpi else None
 
 
-def salvar_perfil(perfil: dict) -> bool:
+def salvar_perfil(perfil: dict, path: Path = META_PROFILE) -> bool:
     try:
-        META_PROFILE.parent.mkdir(parents=True, exist_ok=True)
-        META_PROFILE.write_text(
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
             json.dumps(perfil, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        os.chmod(META_PROFILE, 0o600)
+        os.chmod(path, 0o600)
         return True
     except OSError as exc:
-        print(f"❌ Não foi possível gravar meta_perfil.json: {exc}")
+        if path == META_PROFILE:
+            nome = "meta_perfil.json"
+        else:
+            nome = path.name
+        print(f"❌ Não foi possível gravar {nome}: {exc}")
         return False
 
 
@@ -262,25 +274,25 @@ def ler_metricas() -> list[dict] | None:
     return metricas or None
 
 
-def criar_perfil_interativo() -> bool:
-    print("\nVamos registrar o perfil de objetivos e KPIs da conta Meta.")
+def criar_perfil_interativo(path: Path = META_PROFILE, rotulo: str = "Meta") -> bool:
+    print(f"\nVamos registrar o perfil de objetivos e KPIs da conta {rotulo}.")
     objetivos_texto = resposta(
         "Objetivos de campanha (multi-seleção, separados por vírgula; ou 'pular'): "
     )
     if not objetivos_texto or foi_pulado(objetivos_texto):
-        print("⚠️ Perfil Meta deixado para depois; nenhum objetivo foi inventado.")
+        print(f"⚠️ Perfil {rotulo} deixado para depois; nenhum objetivo foi inventado.")
         return False
     objetivos = [item.strip() for item in objetivos_texto.split(",") if item.strip()]
     metricas = ler_metricas()
     if not metricas:
-        print("⚠️ Perfil Meta deixado para depois; as métricas precisam de metas numéricas.")
+        print(f"⚠️ Perfil {rotulo} deixado para depois; as métricas precisam de metas numéricas.")
         return False
 
     kpi_texto = resposta(
         "KPI primário (nome; Enter usa a primeira métrica; ou 'pular'): "
     )
     if foi_pulado(kpi_texto):
-        print("⚠️ Perfil Meta deixado para depois.")
+        print(f"⚠️ Perfil {rotulo} deixado para depois.")
         return False
     if not kpi_texto:
         kpi = metricas[0]
@@ -309,14 +321,23 @@ def criar_perfil_interativo() -> bool:
         "scale_at": {},
         "kill_at": {},
     }
-    if salvar_perfil(perfil):
-        print("✅ meta_perfil.json criado com objetivos e metas numéricas.")
+    if salvar_perfil(perfil, path):
+        print(f"✅ {path.name} criado com objetivos e metas numéricas.")
         return True
     return False
 
 
+def criar_perfil_google_interativo() -> bool:
+    return criar_perfil_interativo(GOOGLE_PROFILE, "Google Ads")
+
+
 def instalar_skills_meta() -> None:
     for slug in META_SKILLS:
+        instalar_skill(slug)
+
+
+def instalar_skills_google() -> None:
+    for slug in GOOGLE_SKILLS:
         instalar_skill(slug)
 
 
@@ -368,31 +389,135 @@ def executar_meta() -> None:
     instalar_skills_meta()
 
 
+def normalizar_customer_id(valor: str) -> str:
+    """Aceita customer IDs com hífens e devolve somente os dez dígitos."""
+    return "".join(caractere for caractere in (valor or "") if caractere.isdigit())
+
+
+def customer_id_valido(valor: str) -> bool:
+    """Valida o valor BRUTO, não o normalizado.
+
+    Validar depois de remover não-dígitos faz '1234567890x' virar '1234567890'
+    e ser aceito — um erro de digitação seria gravado como conta boa e o aluno
+    operaria na conta errada sem nunca ver um aviso.
+    """
+    bruto = (valor or "").strip()
+    return bool(re.fullmatch(r"[0-9]{10}|[0-9]{3}-[0-9]{3}-[0-9]{4}", bruto))
+
+
+def credencial_google(valores: dict[str, str]) -> str:
+    """Devolve a credencial que de fato AUTENTICA o acesso à conta do aluno.
+
+    O developer token NÃO entra aqui: ele identifica a aplicação perante a API,
+    não o dono da conta — no fluxo do produto quem o detém é o Pipedream, e o
+    aluno só faz OAuth. Aceitá-lo como credencial fazia o setup gravar
+    STATUS=connected e instalar as skills sem nenhuma autenticação real.
+    """
+    acesso = valores.get(GOOGLE_TOKEN_NAME, "").strip()
+    if token_valido(acesso, (GOOGLE_PLACEHOLDER,)):
+        return acesso
+    refresh = valores.get("GOOGLE_ADS_REFRESH_TOKEN", "").strip()
+    if token_valido(refresh, (GOOGLE_PLACEHOLDER,)):
+        return refresh
+    return ""
+
+
 def executar_google() -> None:
     valores = ler_env(GOOGLE_ENV)
-    token_existente = valores.get(GOOGLE_TOKEN_NAME, "").strip()
-    if not token_existente:
-        token_existente = valores.get("GOOGLE_ADS_DEVELOPER_TOKEN", "").strip()
-    if token_valido(token_existente, (GOOGLE_PLACEHOLDER,)):
+    acesso_existente = valores.get(GOOGLE_TOKEN_NAME, "").strip()
+    token_existente = credencial_google(valores)
+    customer_existente = normalizar_customer_id(valores.get("GOOGLE_ADS_CUSTOMER_ID", ""))
+    perfil_existente = carregar_perfil(GOOGLE_PROFILE)
+
+    instalacao_valida = (
+        token_valido(token_existente, (GOOGLE_PLACEHOLDER,))
+        and customer_id_valido(customer_existente)
+        and perfil_existente
+    )
+    if instalacao_valida:
         proteger(GOOGLE_ENV)
-        print(f"✅ Instalação Google Ads válida reaproveitada (credencial {mascarar(token_existente)}).")
+        proteger(GOOGLE_PROFILE)
+        print(
+            f"✅ Instalação Google Ads válida reaproveitada "
+            f"(credencial {mascarar(token_existente)}; conta {mascarar(customer_existente)})."
+        )
+        instalar_skills_google()
         return
 
+    if token_valido(token_existente, (GOOGLE_PLACEHOLDER,)):
+        proteger(GOOGLE_ENV)
+        print(f"✅ Credencial Google Ads existente reaproveitada: {mascarar(token_existente)}")
+
+    # Daqui para baixo cada recusa SAI da função. O aluno que pulou, digitou um
+    # ID inválido ou não trouxe credencial não responde questionário de perfil
+    # nem recebe as skills de Google instaladas: skill sem conta para operar é
+    # promessa vazia na área de membros, e instalar assim contradiz o 'pular'.
     escolha = resposta("Conectar Google Ads agora? [sim/pular]: ", "pular").lower()
     if foi_pulado(escolha):
         atualizar_env(GOOGLE_ENV, {"STATUS": "skipped"})
         print("⏭ Google Ads pulado; a conexão continua opcional.")
         return
-    token_recebido = resposta(
-        "Credencial já obtida pelo Claude (ou 'pular'; ela não será exibida): "
+
+    customer_informado = resposta(
+        "Customer ID da conta Google Ads (10 dígitos, hífens aceitos): "
     )
-    token = conectar_google_ads(token_recebido)
-    if not token_valido(token, (GOOGLE_PLACEHOLDER,)):
+    # Valida o que o aluno DIGITOU; normaliza só depois de aprovar.
+    if not customer_id_valido(customer_informado):
+        atualizar_env(GOOGLE_ENV, {"STATUS": "pending"})
+        print(
+            "⚠️ Customer ID inválido. Informe os 10 dígitos da conta ao conectar o Google Ads "
+            "na Etapa 4; nenhuma conta padrão será usada."
+        )
+        return
+    customer_id = normalizar_customer_id(customer_informado)
+
+    login_informado = resposta(
+        "Login customer ID da MCC (opcional; Enter se a conta não estiver sob MCC): "
+    )
+    if login_informado and not customer_id_valido(login_informado):
+        atualizar_env(GOOGLE_ENV, {"STATUS": "pending"})
+        print("⚠️ Login customer ID inválido; use 10 dígitos ou deixe em branco.")
+        return
+    login_id = normalizar_customer_id(login_informado) if login_informado else ""
+
+    token_recebido = resposta(
+        "Access token já obtido pelo Claude (ou 'pular'; ele não será exibido): "
+    )
+    token = conectar_google_ads(token_recebido) if token_recebido else acesso_existente
+    refresh_token = resposta(
+        "Refresh token Google Ads já obtido pelo Claude (opcional neste stub): "
+    )
+    acesso_ok = token_valido(token, (GOOGLE_PLACEHOLDER,))
+    refresh_ok = token_valido(refresh_token, (GOOGLE_PLACEHOLDER,))
+    # Refresh token sozinho TAMBÉM conecta: ele renova o access token. Exigir
+    # access aqui contradizia credencial_google, que já o aceita, e deixava
+    # pendente um aluno que na prática está conectado.
+    if not acesso_ok and not refresh_ok:
         atualizar_env(GOOGLE_ENV, {"STATUS": "pending"})
         print("⚠️ Nenhuma credencial real recebida; Google Ads ficou pendente.")
         return
-    if atualizar_env(GOOGLE_ENV, {GOOGLE_TOKEN_NAME: token, "STATUS": "connected"}):
-        print(f"✅ Google Ads conectado; credencial salva de forma protegida: {mascarar(token)}")
+
+    atualizacoes = {"GOOGLE_ADS_CUSTOMER_ID": customer_id, "STATUS": "connected"}
+    if acesso_ok:
+        atualizacoes[GOOGLE_TOKEN_NAME] = token
+    if refresh_ok:
+        atualizacoes["GOOGLE_ADS_REFRESH_TOKEN"] = refresh_token
+    if login_id:
+        atualizacoes["GOOGLE_ADS_LOGIN_CUSTOMER_ID"] = login_id
+    if not atualizar_env(GOOGLE_ENV, atualizacoes):
+        # Sem gravar o .env não há conexão nenhuma: o próximo passo leria o
+        # arquivo antigo e operaria com a conta errada.
+        print("⚠️ Não foi possível gravar google_ads.env; Google Ads ficou pendente.")
+        return
+    exibido = mascarar(token) if acesso_ok else "via refresh token"
+    print(f"✅ Google Ads conectado; credenciais salvas de forma protegida: acesso {exibido}")
+
+    if not perfil_existente:
+        criar_perfil_google_interativo()
+    else:
+        proteger(GOOGLE_PROFILE)
+        print("✅ google_perfil.json existente e válido foi reaproveitado.")
+    instalar_skills_google()
 
 
 def main(argv=None) -> int:

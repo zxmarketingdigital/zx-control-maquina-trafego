@@ -34,9 +34,13 @@ SKILLS = [
     'criar-anuncio-video-gemini-omni',
     'meta-metrics-fetcher',
     'meta-performance-analyzer',
+    'google-metrics-fetcher',
+    'google-performance-analyzer',
     'preflight_guardian',
     'meta-estrategista',
     'meta-campaign',
+    'google-estrategista',
+    'google-campaign',
 ]
 
 ERRORS = []

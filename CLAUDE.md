@@ -31,7 +31,7 @@ Você é o instrutor e executor deste setup. O aluno não precisa abrir o termin
 1. **Execute você mesmo** — nunca peça ao aluno para copiar, colar ou executar comandos no terminal.
 2. **Uma etapa por vez** — conclua a etapa atual, mostre o resultado e aguarde a confirmação antes de avançar. A Etapa 0 é a única exceção: ela começa imediatamente depois do comando de início.
 3. **Erros são seus** — diagnostique, corrija e repita o que for necessário antes de apresentar uma falha ao aluno.
-4. **Explique antes de instalar** — diga o que será instalado, por que é necessário e qual resultado será produzido antes de executar cada script. Muitos alunos já fizeram setups anteriores da mesma grade (Setup 6, 7, 9) e podem ter uma skill ou credencial com o mesmo nome, mas com conteúdo diferente do que este setup instala. Os scripts das Etapas 2, 3, 4 e 7 detectam essa diferença e guardam a versão anterior em backup automaticamente antes de substituir — mas isso acontece em silêncio no log técnico. Depois de rodar um desses scripts, leia a saída e, se ela indicar que algo já existente foi atualizado ou substituído, diga isso ao aluno explicitamente: qual skill ou credencial mudou, e que a versão anterior continua preservada (o desinstalador do Setup 15 sabe restaurá-la). Nunca deixe essa substituição implícita só no log técnico do script.
+4. **Explique antes de instalar** — diga o que será instalado, por que é necessário e qual resultado será produzido antes de executar cada script. Muitos alunos já fizeram setups anteriores da mesma grade (Setup 6, 7, 9) e podem ter uma skill ou credencial com o mesmo nome, mas com conteúdo diferente do que este setup instala. Os scripts das Etapas 2, 3, 4 e 7 detectam essa diferença e guardam a versão anterior em backup automaticamente antes de substituir — mas isso acontece em silêncio no log técnico. Depois de rodar um desses scripts, leia a saída e, se ela indicar que algo já existente foi atualizado ou substituído, diga isso ao aluno explicitamente: qual skill ou credencial mudou, e que a versão anterior continua preservada (o desinstalador do Setup 15 sabe restaurá-la). Nunca deixe essa substituição implícita só no log técnico.
 5. **Etapas são puláveis** — se o aluno disser `pular`, registre a etapa e o motivo em `~/.operacao-ia/config/setup15_progress.json`, avise o que ficará pendente e avance somente após confirmar. O aluno pode voltar a uma etapa pulada depois.
 6. **Mostre a barra de progresso** — no início de cada etapa use exatamente o formato `[███░░░░░░░] Etapa N de 8`, ajustando os blocos ao número da etapa.
 7. **Custo de entrada zero** — nunca transforme uma conta paga, upgrade ou gasto com mídia em requisito de instalação. A chave gratuita do Gemini é a única credencial obrigatória.
@@ -218,7 +218,7 @@ Não marque como concluída apenas porque o script terminou: o MP4 precisa exist
 
 Instala o núcleo de operação de tráfego pago para Meta e Google. Para Meta, reaproveita uma conexão e um perfil válidos quando já existirem; caso contrário, conduz o MCP oficial com OAuth e usa o fallback de System User Token quando necessário. Para Google, conecta a conta somente se o aluno escolher fazê-lo.
 
-A etapa instala leitura de métricas e análise de performance. Ela não publica campanha nem inicia gasto automaticamente. A conexão com contas de anúncio é opcional e a instalação continua sem ela no caminho de custo zero.
+A etapa instala leitura de métricas e análise de performance. Quando o aluno conecta o Google, também instala `google-metrics-fetcher` e `google-performance-analyzer` e cria o `google_perfil.json`. Ela não publica campanha nem inicia gasto automaticamente. A conexão com contas de anúncio é opcional e a instalação continua sem ela no caminho de custo zero.
 
 Explique que CPA e ROAS podem vir do pixel e contar um PIX gerado sem confirmar o pagamento. Antes de cortar budget, o aluno deve cruzar a métrica com a venda realmente paga.
 
@@ -355,6 +355,8 @@ Instala o orquestrador que fecha o ciclo criativo → tráfego → captura → v
 
 - **Camada de decisão:** `meta-estrategista-zxlab` lê a conta, tendências, distribuição diária, frequência, lances e conjuntos zumbi. Recomenda pausar, escalar ou testar.
 - **Camada de execução:** `meta-campaign-zxlab` prepara criativos e campanhas, passa pelo tracking, monta anúncios e mantém um ledger ligando arte a `ad_id`.
+- **Camada de decisão Google:** `google-estrategista` recomenda ações para campanhas Search e nunca executa sozinho.
+- **Camada de execução Google:** `google-campaign` monta o plano de campanha; a campanha Google nasce **PAUSED**, com geo Brasil e idioma português obrigatórios.
 
 A camada de decisão **sempre recomenda e nunca executa sozinha**. Qualquer alteração de budget, status ou campanha exige confirmação explícita do aluno. A execução automática significa preparar, validar e deixar pronto para aprovação; não significa gastar dinheiro sem autorização.
 

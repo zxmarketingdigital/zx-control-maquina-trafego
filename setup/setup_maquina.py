@@ -20,6 +20,8 @@ BACKUP_BASE = SKILLS_DST
 EXPECTED = [
     "meta-estrategista",
     "meta-campaign",
+    "google-estrategista",
+    "google-campaign",
 ]
 
 
@@ -80,6 +82,14 @@ def _print_contract() -> None:
     print(
         "  • Quando a recomendação é testar, o estrategista aciona o meta-campaign, "
         "que gera os criativos e monta campanha, conjunto e anúncio via Graph API."
+    )
+    print(
+        "  • O google-estrategista recomenda e nunca executa sozinho; toda ação real "
+        "passa pelo google-campaign e exige confirmação do dono da conta."
+    )
+    print(
+        "  • O google-campaign monta o plano dos 7 passos; a campanha nasce PAUSED "
+        "com geo Brasil e idioma português obrigatórios."
     )
     print(
         "  • O QA de safe-zone é obrigatório antes de qualquer arte ir para aprovação; "
@@ -199,7 +209,7 @@ def main() -> int:
         )
 
     if not available and not repo_available:
-        print("❌ Nenhuma das 2 skills está disponível no destino ou no repo.")
+        print("❌ Nenhuma das 4 skills está disponível no destino ou no repo.")
         return 1
 
     print("✅ Etapa 7 concluída; camadas disponíveis ou aguardando conteúdo no repo.")
