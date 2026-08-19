@@ -1,12 +1,12 @@
 # ZX Control — Setup 15: Máquina de Tráfego com Claude Code
 
-Sua linha de aquisição completa, instalada no seu Mac e rodando na sua conta:
+Sua linha de aquisição completa, instalada no seu computador e rodando na sua conta:
 **criar o criativo → subir o tráfego → atrair no orgânico → medir tudo.**
 
 Ao final deste setup você tem:
 
 - 🎨 **Criativos com IA — imagem**: artes de anúncio com variações de ângulo e texto nítido, sem designer
-- 🎬 **Criativos com IA — vídeo**: MP4 9:16 com narração e legenda, renderizado no seu Mac
+- 🎬 **Criativos com IA — vídeo**: MP4 9:16 com narração e legenda, renderizado no seu computador
 - 🎯 **Tráfego pago avançado**: estrutura de campanha Meta e Google, matriz de ângulos, CBO, escala e leitura de métrica
 - 🌱 **Tráfego orgânico + Blog SEO**: um agente que escreve e publica no seu blog todo dia, no seu nicho
 - 📊 **Tracking & mensuração**: pixel/CAPI, tracking de canal e atribuição — você decide pelo dado, não pelo achismo
@@ -15,7 +15,7 @@ Ao final deste setup você tem:
 ## Custo para instalar: R$ 0
 
 O caminho padrão usa só contas gratuitas. Você precisa de **uma chave do Google Gemini**
-(criada em ~2 minutos, free tier) e o resto roda local no seu Mac. Ferramentas pagas aparecem
+(criada em ~2 minutos, free tier) e o resto roda local no seu computador. Ferramentas pagas aparecem
 apenas como upgrade opcional — nenhuma etapa depende delas.
 
 ## Pré-requisitos
