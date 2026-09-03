@@ -1,6 +1,6 @@
 /* zx-tracking.js — atribuição multicanal (Etapa 5 / Etapa 6 do Setup 15).
  * Captura utm/gclid/referrer na LP ou no blog, classifica o canal e injeta um `sck` (e os
- * utm_*/gclid) como query string nos links de checkout que usam esse padrão (ex.: Hotmart
+ * utm_* e gclid) como query string nos links de checkout que usam esse padrão (ex.: Hotmart
  * `?sck=`). Plataformas que exigem um formato próprio de atribuição (ex.: `saleMetas` da
  * Greenn) precisam de um adaptador dedicado — este script não gera esse formato.
  *
