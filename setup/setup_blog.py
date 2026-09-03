@@ -12,6 +12,21 @@ import sys
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
+
+def resolve_python_bin():
+    """No Windows, o python3.exe no PATH costuma ser só o atalho da Microsoft
+    Store (não roda código, sai com 9009) — shutil.which("python3") o encontra
+    mesmo assim. Nesse SO usamos sempre sys.executable, que já é o interpretador
+    real rodando este script."""
+    if os.name != "nt" and shutil.which("python3"):
+        return "python3"
+    return sys.executable
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BLOG_DIR = ROOT / "blog"
@@ -250,6 +265,8 @@ def run_command(args):
             cwd=str(ROOT),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except OSError as exc:
@@ -314,7 +331,7 @@ def ensure_queue(config):
 
     if regenerate:
         print(f'Gerando a fila para o nicho: {nicho}')
-        python_bin = "python3" if shutil.which("python3") else sys.executable
+        python_bin = resolve_python_bin()
         result = run_command([
             python_bin,
             "blog/agente/gerar_fila.py",
@@ -430,7 +447,7 @@ def install_launchagent():
         return
 
     node_bin = shutil.which("node")
-    python_bin = shutil.which("python3") or sys.executable
+    python_bin = resolve_python_bin()
     if not node_bin:
         print("Node não foi encontrado; não foi possível instalar o LaunchAgent.")
         return

@@ -129,7 +129,9 @@ Se a chave do Gemini não validar, corrija o problema, peça uma nova entrada se
 
 ### O que faz
 
-Instala e configura a cadeia de criação de imagens: `gerar-imagem` com Gemini como provider padrão, `zx-safezone`, `criar-thumbnail`, `meta-creative-brief` e uma versão genérica de `criar-arte-oferta`. Também instala os formatos visuais como dados, sem catálogo, prova social ou oferta de terceiros.
+Instala e configura a cadeia de criação de imagens: `gerar-imagem`, `zx-safezone`, `criar-thumbnail`, `meta-creative-brief` e uma versão genérica de `criar-arte-oferta`. Também instala os formatos visuais como dados, sem catálogo, prova social ou oferta de terceiros.
+
+⚠️ O free tier do Gemini não concede cota nenhuma para os modelos de imagem (toda chamada retorna `429 RESOURCE_EXHAUSTED`, `limit: 0` — testado em vários modelos, chave válida). O caminho padrão de custo zero desta etapa é `criar-arte-oferta`, que renderiza HTML→PNG localmente via Chrome. Os modelos de imagem do Gemini (e o `image2`/HiggsField) só funcionam como upgrade, se o aluno tiver um plano pago — não apresente `gerar-imagem` com provider Gemini como caminho gratuito.
 
 O teste produz uma arte da própria oferta do aluno em 1:1 e 9:16. O resultado só é aprovado depois de passar pelo safe-zone.
 
@@ -152,7 +154,7 @@ Execute você mesmo:
 
 `python3 setup/setup_criativos_imagem.py`
 
-Use o Gemini gratuito como caminho padrão. Se um provider opcional estiver ausente, prossiga com a degradação prevista, sem sugerir que o aluno compre créditos.
+Use `criar-arte-oferta` (render local via Chrome) como caminho padrão gratuito. Se um provider opcional estiver ausente, prossiga com a degradação prevista, sem sugerir que o aluno compre créditos.
 
 ### O que valida no final antes de marcar como concluída
 

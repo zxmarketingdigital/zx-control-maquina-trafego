@@ -11,12 +11,19 @@ import argparse
 import datetime as dt
 import filecmp
 import json
-import os
 import re
 import shutil
 import sys
 from pathlib import Path
 from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _winsec  # noqa: E402
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -100,7 +107,7 @@ def atualizar_env(path: Path, atualizacoes: dict[str, str]) -> bool:
 
     try:
         path.write_text("\n".join(novas_linhas).rstrip("\n") + "\n", encoding="utf-8")
-        os.chmod(path, 0o600)
+        _winsec.lock_down(path)
     except OSError as exc:
         print(f"❌ Não foi possível gravar {path.name}: {exc}")
         return False
@@ -110,7 +117,7 @@ def atualizar_env(path: Path, atualizacoes: dict[str, str]) -> bool:
 def proteger(path: Path) -> None:
     if path.exists():
         try:
-            os.chmod(path, 0o600)
+            _winsec.lock_down(path)
         except OSError:
             pass
 
@@ -236,7 +243,7 @@ def salvar_perfil(perfil: dict, path: Path = META_PROFILE) -> bool:
         path.write_text(
             json.dumps(perfil, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        os.chmod(path, 0o600)
+        _winsec.lock_down(path)
         return True
     except OSError as exc:
         if path == META_PROFILE:

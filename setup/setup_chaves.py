@@ -3,12 +3,19 @@
 import argparse
 import getpass
 import json
-import os
 import shutil
 import sys
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _winsec  # noqa: E402
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
 
@@ -82,7 +89,7 @@ def atualizar_env(path, atualizacoes):
 
     try:
         path.write_text("\n".join(novas_linhas).rstrip("\n") + "\n", encoding="utf-8")
-        os.chmod(path, 0o600)
+        _winsec.lock_down(path)
     except OSError:
         return False
     return True
@@ -91,7 +98,7 @@ def atualizar_env(path, atualizacoes):
 def proteger_arquivo(path):
     if path.exists():
         try:
-            os.chmod(path, 0o600)
+            _winsec.lock_down(path)
         except OSError:
             pass
 
@@ -115,7 +122,7 @@ def preservar_se_existente(path):
     tmp_path = path.parent / f".s15-backup-{path.name}-{timestamp}.tmp"
     try:
         shutil.copy2(path, tmp_path)
-        os.chmod(tmp_path, 0o600)
+        _winsec.lock_down(tmp_path)
         tmp_path.rename(backup_path)
         return True
     except OSError:

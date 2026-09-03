@@ -17,6 +17,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 GRAPH_BASE = "https://graph.facebook.com/v21.0"
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
 META_ENV_PATH = CONFIG_DIR / "meta.env"

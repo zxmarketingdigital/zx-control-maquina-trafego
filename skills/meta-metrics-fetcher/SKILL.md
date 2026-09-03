@@ -1,6 +1,6 @@
 ---
 name: meta-metrics-fetcher
-description: "Coleta métricas das campanhas Meta ADS via MCP oficial e atualiza o JSON do dashboard local. Lê o perfil do aluno (~/.operacao-ia/config/meta_perfil.json) para puxar APENAS os KPIs configurados (CPL, CPA, ROAS, custo/msg, CPM, CTR, etc.) — nada genérico, nada hardcoded. Use SEMPRE que o aluno disser: atualizar metricas meta, sync metricas, baixar metricas meta, atualizar dashboard meta, refresh meta, refresh dashboard, fetch meta, atualizar trafego pago."
+description: "Coleta métricas das campanhas Meta ADS via Graph API direta e atualiza o JSON do dashboard local. Lê o perfil do aluno (~/.operacao-ia/config/meta_perfil.json) para puxar APENAS os KPIs configurados (CPL, CPA, ROAS, custo/msg, CPM, CTR, etc.) — nada genérico, nada hardcoded. Use SEMPRE que o aluno disser: atualizar metricas meta, sync metricas, baixar metricas meta, atualizar dashboard meta, refresh meta, refresh dashboard, fetch meta, atualizar trafego pago."
 model: sonnet
 effort: high
 ---
@@ -12,22 +12,42 @@ Coleta métricas Meta ADS adaptadas ao perfil do aluno e atualiza o JSON do dash
 ## Pré-requisitos
 
 - `~/.operacao-ia/config/meta_perfil.json` existe.
-- MCP `mcp__meta-official__*` está autenticado.
+- `~/.operacao-ia/config/meta.env` tem `META_ACCESS_TOKEN` — um token de usuário do
+  sistema (System User) do Business Manager, com estas permissões:
+  `ads_read`, `ads_management`, `business_management`, `read_insights`,
+  `leads_retrieval` (só é usado se `objectives` incluir `LEAD_GENERATION`),
+  `pages_read_engagement` (necessário para o KPI `cost_per_msg`, ligado à Page
+  do anúncio).
+
+> Não existe conector MCP oficial da Meta disponível hoje — o registro de
+> conectores não retorna nada para Meta Ads/Marketing API. Este skill fala
+> direto com a Graph API (`https://graph.facebook.com/v21.0`), que é estável,
+> documentada e não depende de nenhum MCP de terceiros.
 
 ## Fluxo
 
 1. Ler `meta_perfil.json` e extrair `kpis`, `windows`, `ad_account_id` e `objectives`.
-2. Para cada janela em `windows` (ex: 4, 7, 14, 30 dias):
+2. Ler `META_ACCESS_TOKEN` de `~/.operacao-ia/config/meta.env` (nunca imprimir o valor
+   completo — mascarar como `primeiros caracteres…últimos 4`).
+3. Para cada janela em `windows` (ex: 4, 7, 14, 30 dias):
    - Calcular `time_range = {since: hoje-N, until: hoje}`.
    - Determinar os campos `fields` necessários usando o mapeamento abaixo.
-   - Chamar `mcp__meta-official__ads_insights_*` com `level=ad`, `time_range`, `fields` e `filtering=[{field:'effective_status',operator:'IN',value:['ACTIVE','PAUSED']}]`.
-   - Se `objectives` inclui `LEAD_GENERATION`, também chamar `ads_get_ad_entities` para enriquecer os dados com leads.
-3. Calcular cada KPI por ad usando o mapeamento abaixo.
-4. Aplicar `decide()` por ad, lendo `scale_at` e `kill_at` de cada KPI no perfil.
-5. Agregar os dados em ad → adset → campaign → conta.
-6. Calcular `kpis_summary` no topo: média ponderada por spend, comparação versus target e status verde/amarelo/vermelho.
-7. Gravar `~/.operacao-ia/dashboards/paid-traffic-{N}d.json` para cada janela.
-8. Reportar ao aluno: linhas processadas, status por KPI e próxima execução automática, se houver agendamento configurado.
+   - Chamar `GET /{ad_account_id}/insights` com `level=ad`, `time_range`, `fields`
+     — **sem** o parâmetro `filtering`. `effective_status` não é um campo de filtro
+     válido no endpoint de insights (a API responde `(#100) Filtering field
+     effective_status is invalid`); ele só existe em `/ads` e `/adsets`.
+   - Para saber o status ao vivo de cada ad (necessário antes de recomendar pausar
+     algo, já que o `meta-estrategista` exige isso), chamar separadamente
+     `GET /{ad_account_id}/ads?fields=id,name,effective_status` e cruzar pelo `id`.
+   - Se `objectives` inclui `LEAD_GENERATION`, também chamar
+     `GET /{ad_id}/leads` (ou o endpoint de leadgen forms equivalente) para
+     enriquecer os dados com leads.
+4. Calcular cada KPI por ad usando o mapeamento abaixo.
+5. Aplicar `decide()` por ad, lendo `scale_at` e `kill_at` de cada KPI no perfil.
+6. Agregar os dados em ad → adset → campaign → conta.
+7. Calcular `kpis_summary` no topo: média ponderada por spend, comparação versus target e status verde/amarelo/vermelho.
+8. Gravar `~/.operacao-ia/dashboards/paid-traffic-{N}d.json` para cada janela.
+9. Reportar ao aluno: linhas processadas, status por KPI e próxima execução automática, se houver agendamento configurado.
 
 ## Mapeamento KPI → fields da API + cálculo
 
@@ -87,7 +107,12 @@ Sempre avisar quando `cpa` ou `roas` estiverem sujeitos à validação de pagame
 
 ## Erros
 
-- MCP não autenticado → orientar: "rode `python3 setup/setup_meta_oauth.py` para reconectar".
-- `meta_perfil.json` não existe → informar: "rode Etapa 2 do Setup primeiro".
+- `META_ACCESS_TOKEN` ausente ou a Graph API recusar o token (HTTP 401/190) → orientar:
+  "gere um novo token de usuário do sistema no Business Manager (Configurações do
+  Negócio → Usuários → Usuários do sistema) com as permissões `ads_read`,
+  `ads_management`, `business_management`, `read_insights`, `leads_retrieval` e
+  `pages_read_engagement`, e rode `python3 setup/setup_pago_meta_google.py` de
+  novo para reconectar".
+- `meta_perfil.json` não existe → informar: "rode a Etapa 4 do Setup primeiro".
 - Conta sem dados na janela → gravar JSON com `campaigns:[]` e mensagem "sem campanhas ativas na janela".
 - KPI, target ou limiar ausente no perfil → não inventar configuração; registrar o campo ausente e continuar apenas com os KPIs válidos.

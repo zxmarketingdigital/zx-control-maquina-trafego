@@ -10,6 +10,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 RETRYABLE_HTTP_CODES = (429, 500, 502, 503, 504)
 MAX_ATTEMPTS = 3
 
@@ -51,7 +56,9 @@ def load_gemini_key():
 
 def call_gemini(prompt):
     key = load_gemini_key()
-    model = os.environ.get('GEMINI_MODEL', 'gemini-flash-latest')
+    # Alias "latest" concentra a carga de todos os projetos Gemini e devolve
+    # 503 com muito mais frequência que um modelo nomeado — usa versão pinada.
+    model = os.environ.get('GEMINI_MODEL', 'gemini-3.5-flash')
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}'
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],

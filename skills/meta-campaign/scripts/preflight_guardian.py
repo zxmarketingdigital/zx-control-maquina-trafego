@@ -11,6 +11,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 GRAPH_BASE = "https://graph.facebook.com/v21.0"
 META_ENV_PATH = Path.home() / ".operacao-ia" / "config" / "meta.env"
 
@@ -139,21 +144,18 @@ def validate_link(link):
         raise CheckError("URL precisa usar HTTP ou HTTPS e conter um host")
 
 
-def get_link_status(link):
-    request = Request(link, headers={"User-Agent": "operacao-ia-preflight/1.0"}, method="HEAD")
-    try:
-        with urlopen(request, timeout=5) as response:
-            return getattr(response, "status", 200)
-    except HTTPError as exc:
-        if exc.code != 405:
-            raise CheckError(f"servidor respondeu HTTP {exc.code}") from None
-    except (URLError, TimeoutError, OSError) as exc:
-        raise CheckError(f"erro de conexão: {exc}") from None
+TRACKING_MARKERS = ("zx-tracking", "zx_tracking", "zxApplyTracking")
 
+
+def get_link_response(link):
+    """Busca o HTML via GET — precisamos do corpo, não só do status, para
+    confirmar que o tracking está de fato embutido na página (ver check_link)."""
     request = Request(link, headers={"User-Agent": "operacao-ia-preflight/1.0"}, method="GET")
     try:
         with urlopen(request, timeout=5) as response:
-            return getattr(response, "status", 200)
+            status = getattr(response, "status", 200)
+            body = response.read().decode("utf-8", errors="replace")
+            return status, body
     except HTTPError as exc:
         raise CheckError(f"servidor respondeu HTTP {exc.code}") from None
     except (URLError, TimeoutError, OSError) as exc:
@@ -162,10 +164,16 @@ def get_link_status(link):
 
 def check_link(link):
     validate_link(link)
-    status = get_link_status(link)
+    status, body = get_link_response(link)
     if status != 200:
         raise CheckError(f"resposta final HTTP {status}; esperado HTTP 200")
-    return "link respondeu HTTP 200"
+    if not any(marker in body for marker in TRACKING_MARKERS):
+        raise CheckError(
+            "página respondeu HTTP 200 mas não tem tracking embutido "
+            f"(nenhum de {', '.join(TRACKING_MARKERS)} encontrado no HTML) — "
+            "não suba a campanha sem atribuição"
+        )
+    return "link respondeu HTTP 200 e o tracking está embutido na página"
 
 
 def build_parser():
