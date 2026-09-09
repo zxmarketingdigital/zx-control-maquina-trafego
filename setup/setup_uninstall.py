@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 '''Setup 15 — Desinstalador idempotente.'''
 import json
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _winsec  # noqa: E402
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 OPERACAO = Path.home() / '.operacao-ia'
 CONFIG_DIR = OPERACAO / 'config'
@@ -74,7 +81,7 @@ def restore_or_remove_env(filename):
             elif path.is_dir():
                 shutil.rmtree(path)
             shutil.copy2(backup_path, path)
-            os.chmod(path, 0o600)
+            _winsec.lock_down(path)
             backup_path.unlink()
             for leftover in backups[1:]:
                 leftover.unlink()

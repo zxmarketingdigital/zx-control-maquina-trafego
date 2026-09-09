@@ -41,6 +41,11 @@ import subprocess
 import sys
 import tempfile
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 try:
     import numpy as np
     from PIL import Image, ImageDraw, ImageFilter, ImageOps

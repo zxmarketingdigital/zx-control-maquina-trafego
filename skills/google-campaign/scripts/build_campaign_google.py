@@ -7,17 +7,29 @@ pelo Claude através do MCP Pipedream e mantém o ledger da operação.
 
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
 import re
 import sys
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+if sys.platform == "win32":
+    import msvcrt
+    fcntl = None
+else:
+    import fcntl
+    msvcrt = None
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
@@ -197,6 +209,37 @@ def _read_ledger():
     return data
 
 
+_LEDGER_LOCK_TIMEOUT_S = 30
+_LEDGER_LOCK_POLL_S = 0.1
+
+
+def _lock_windows(handle):
+    # msvcrt.locking não tem modo bloqueante com timeout: fazemos espera ativa
+    # com LK_NBLCK até travar 1 byte ou estourar o limite.
+    handle.seek(0, 2)
+    if handle.tell() == 0:
+        handle.write(b"0")
+        handle.flush()
+    handle.seek(0)
+    deadline = time.monotonic() + _LEDGER_LOCK_TIMEOUT_S
+    while True:
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"não foi possível travar o ledger do Google Ads em {_LEDGER_LOCK_TIMEOUT_S}s "
+                    "— outro processo pode estar preso segurando o lock"
+                ) from None
+            time.sleep(_LEDGER_LOCK_POLL_S)
+
+
+def _unlock_windows(handle):
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 @contextlib.contextmanager
 def _ledger_lock():
     """Serializa leitura-modificação-escrita do ledger.
@@ -208,12 +251,20 @@ def _ledger_lock():
     ledger_path = Path(LEDGER_PATH)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = ledger_path.with_name(f"{ledger_path.name}.lock")
-    with open(lock_path, "w", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+    mode = "a+b" if sys.platform == "win32" else "w"
+    kwargs = {} if sys.platform == "win32" else {"encoding": "utf-8"}
+    with open(lock_path, mode, **kwargs) as handle:
+        if sys.platform == "win32":
+            _lock_windows(handle)
+        else:
+            fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            if sys.platform == "win32":
+                _unlock_windows(handle)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _write_ledger(entries):

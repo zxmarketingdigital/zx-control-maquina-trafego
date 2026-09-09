@@ -21,6 +21,14 @@ import sys
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _winsec  # noqa: E402
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_SRC = REPO_ROOT / "skills"
 SKILLS_DST = Path.home() / ".claude" / "skills"
@@ -94,9 +102,9 @@ def _write_env(path: Path, values: Dict[str, str]) -> None:
         lines.append(f"{key}={value}")
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.chmod(temporary, 0o600)
+    _winsec.lock_down(temporary)
     os.replace(temporary, path)
-    os.chmod(path, 0o600)
+    _winsec.lock_down(path)
 
 
 def _tracking_source() -> Optional[Path]:

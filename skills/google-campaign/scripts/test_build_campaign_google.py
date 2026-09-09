@@ -8,6 +8,12 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import sys
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import build_campaign_google as build
 

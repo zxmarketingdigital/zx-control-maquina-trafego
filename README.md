@@ -15,14 +15,17 @@ Ao final deste setup você tem:
 ## Custo para instalar: R$ 0
 
 O caminho padrão usa só contas gratuitas. Você precisa de **uma chave do Google Gemini**
-(criada em ~2 minutos, free tier) e o resto roda local no seu computador. Ferramentas pagas aparecem
-apenas como upgrade opcional — nenhuma etapa depende delas.
+(criada em ~2 minutos, free tier) e o resto roda local no seu computador. O free tier do
+Gemini não inclui cota de geração de imagem — o criativo de imagem sai zero-custo mesmo
+assim, renderizado localmente via Chrome (skill `criar-arte-oferta`); os modelos de imagem
+do Gemini entram como upgrade opcional, se você tiver um plano pago. Ferramentas pagas
+aparecem apenas como upgrade opcional — nenhuma etapa depende delas.
 
 ## Pré-requisitos
 
-- macOS com [Claude Code](https://claude.com/claude-code) instalado
+- macOS ou Windows, com [Claude Code](https://claude.com/claude-code) instalado
 - Python 3.9 ou superior
-- Node.js e Google Chrome (para renderizar os vídeos localmente)
+- Node.js e Google Chrome (para renderizar os vídeos e os criativos de imagem localmente)
 - Uma chave gratuita do Gemini — o próprio setup te guia na criação
 
 Opcional, para quem já anuncia: conta Meta Ads, conta Google Ads, conta Cloudflare (para

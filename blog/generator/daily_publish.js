@@ -30,6 +30,33 @@ const LIST_MODE = args.includes('--list');
 function log(message) { console.log(`[blog] ${message}`); }
 function warn(message) { console.warn(`[blog][warn] ${message}`); }
 function err(message) { console.error(`[blog][erro] ${message}`); }
+
+// No Windows, python3.exe às vezes é só o atalho da Microsoft Store (exit 9009,
+// não roda código nenhum). Sonda os interpretadores reais e memoriza o primeiro
+// que responde antes de disparar qualquer chamada de verdade.
+let PYTHON_BIN = null;
+function resolvePython() {
+  if (PYTHON_BIN) return PYTHON_BIN;
+  const candidates = process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python'];
+  for (const name of candidates) {
+    const probe = spawnSync(name, ['-c', 'import sys;print(sys.version_info[0])'], { encoding: 'utf8' });
+    if (!probe.error && probe.status === 0 && (probe.stdout || '').trim() === '3') {
+      PYTHON_BIN = name;
+      return name;
+    }
+  }
+  throw new Error(`Python 3 não encontrado (tentado: ${candidates.join(', ')})`);
+}
+
+// Bloqueia a thread principal de forma síncrona — usado só para o backoff do
+// retry do Gemini, num script de lote sem I/O concorrente para perder.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function looksLikeTransientGeminiError(text) {
+  return /\b503\b/.test(text || '') || /UNAVAILABLE/i.test(text || '');
+}
 function readQueue() {
   try { return JSON.parse(fs.readFileSync(QUEUE, 'utf8')); }
   catch (e) { throw new Error(`não foi possível ler queue.json: ${e.message}`); }
@@ -70,12 +97,24 @@ function generateMissingArticle(target) {
     return false;
   }
   log(`conteúdo ausente; gerando artigo com Gemini para ${target.slug}...`);
+  let python;
+  try { python = resolvePython(); } catch (e) { err(e.message); return false; }
+  const MAX_ATTEMPTS = 3, RETRY_DELAY_MS = 180000;
   let result;
-  try {
-    result = spawnSync('python3', [AGENT, '--slug', target.slug], { cwd: ROOT, encoding: 'utf8', timeout: 180000 });
-  } catch (e) {
-    err(`não foi possível iniciar o agente: ${e.message}`);
-    return false;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      // Timeout elevado: um artigo pillar completo estoura os 180s originais.
+      result = spawnSync(python, [AGENT, '--slug', target.slug], { cwd: ROOT, encoding: 'utf8', timeout: 420000 });
+    } catch (e) {
+      err(`não foi possível iniciar o agente: ${e.message}`);
+      return false;
+    }
+    const failed = Boolean(result.error) || result.status !== 0;
+    if (!failed) break;
+    const combined = `${result.stdout || ''}\n${result.stderr || ''}`;
+    if (!looksLikeTransientGeminiError(combined) || attempt === MAX_ATTEMPTS) break;
+    warn(`Gemini retornou erro transitório (tentativa ${attempt}/${MAX_ATTEMPTS}) — nova tentativa em ${RETRY_DELAY_MS / 1000}s...`);
+    sleepSync(RETRY_DELAY_MS);
   }
   if (result.stdout) console.log(result.stdout.trim());
   if (result.stderr) console.error(result.stderr.trim());
@@ -140,6 +179,46 @@ function toYaml(frontmatter) {
   return `${lines.join('\n')}\n`;
 }
 function xmlEsc(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+// rsvg-convert (librsvg) não tem distribuição prática no Windows. O SVG do OG
+// image é trivial (dois retângulos, três blocos de texto) — não justifica exigir
+// essa dependência nativa. Fallback: Chrome headless, que já é pré-requisito
+// declarado do setup (renderização de vídeo).
+let CHROME_BIN;
+function resolveChromeBinary() {
+  if (CHROME_BIN !== undefined) return CHROME_BIN;
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) { CHROME_BIN = process.env.CHROME_PATH; return CHROME_BIN; }
+  const knownPaths = process.platform === 'win32'
+    ? [
+        path.join(process.env['PROGRAMFILES'] || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['LOCALAPPDATA'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      ]
+    : process.platform === 'darwin'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium-browser', '/usr/bin/chromium'];
+  for (const candidate of knownPaths) { if (candidate && fs.existsSync(candidate)) { CHROME_BIN = candidate; return CHROME_BIN; } }
+  const namesOnPath = process.platform === 'win32' ? ['chrome.exe', 'chrome'] : ['google-chrome', 'chromium-browser', 'chromium'];
+  for (const name of namesOnPath) {
+    const probe = spawnSync(name, ['--version'], { encoding: 'utf8' });
+    if (!probe.error && probe.status === 0) { CHROME_BIN = name; return CHROME_BIN; }
+  }
+  CHROME_BIN = null;
+  return CHROME_BIN;
+}
+function renderPngWithChrome(svgPath, pngPath, width, height) {
+  const chrome = resolveChromeBinary();
+  if (!chrome) return false;
+  const fileUrl = `file://${svgPath.replace(/\\/g, '/')}`;
+  const result = spawnSync(chrome, [
+    '--headless', '--disable-gpu', '--no-sandbox',
+    `--screenshot=${pngPath}`,
+    `--window-size=${width},${height}`,
+    '--hide-scrollbars',
+    fileUrl,
+  ], { encoding: 'utf8', timeout: 20000 });
+  return !result.error && result.status === 0 && fs.existsSync(pngPath);
+}
 function generateOgImage(keyword, frontmatter) {
   const site = CONFIG.site || {};
   const name = xmlEsc(site.name || 'Blog');
@@ -151,9 +230,15 @@ function generateOgImage(keyword, frontmatter) {
   if (DRY_RUN) { log(`(dry-run) OG image seria gerada: assets/og-${keyword.slug}.png`); return true; }
   fs.writeFileSync(svgPath, svg, 'utf8');
   const result = spawnSync('rsvg-convert', ['-w', '1200', '-h', '630', svgPath, '-o', pngPath], { encoding: 'utf8', timeout: 15000 });
-  if (result.error || result.status !== 0 || !fs.existsSync(pngPath)) {
+  let ok = !result.error && result.status === 0 && fs.existsSync(pngPath);
+  if (!ok) {
     fs.rmSync(pngPath, { force: true });
-    warn(`rsvg-convert indisponível ou falhou (exit ${result.status == null ? 'indefinido' : result.status}) — OG image não gerada; instale rsvg-convert para publicar com imagem OG`);
+    warn('rsvg-convert indisponível ou falhou — tentando fallback via Chrome headless...');
+    ok = renderPngWithChrome(svgPath, pngPath, 1200, 630);
+  }
+  if (!ok) {
+    fs.rmSync(pngPath, { force: true });
+    warn('OG image não gerada (rsvg-convert e Chrome headless indisponíveis) — publicando sem imagem OG');
     return false;
   }
   log(`OG image gerada: assets/og-${keyword.slug}.png`);
@@ -171,9 +256,10 @@ function generateThumbnail(keyword, frontmatter) {
     const optimizer = path.join(GENERATOR, 'optimize_thumb.py');
     if (!fs.existsSync(script) || !fs.existsSync(optimizer)) { warn('gerador de thumbnail não disponível — seguindo sem imagem'); return; }
     fs.mkdirSync(dir, { recursive: true });
-    const generated = spawnSync('python3', [script, '--prompt', prompt, '--output', temporary, '--size', '1280x720', '--provider', 'auto', '--json'], { encoding: 'utf8', timeout: 200000 });
+    const python = resolvePython();
+    const generated = spawnSync(python, [script, '--prompt', prompt, '--output', temporary, '--size', '1280x720', '--provider', 'auto', '--json'], { encoding: 'utf8', timeout: 200000 });
     if (generated.status !== 0 || !fs.existsSync(temporary)) { warn(`thumbnail não gerada (exit ${generated.status}) — seguindo sem imagem`); return; }
-    const optimized = spawnSync('python3', [optimizer, '--in', temporary, '--out', output], { encoding: 'utf8', timeout: 30000 });
+    const optimized = spawnSync(python, [optimizer, '--in', temporary, '--out', output], { encoding: 'utf8', timeout: 30000 });
     fs.rmSync(temporary, { force: true });
     if (optimized.status === 0 && fs.existsSync(output)) log(`thumbnail gerada: assets/thumbs/${keyword.slug}.webp`);
     else warn('otimização da thumbnail falhou — seguindo sem imagem');

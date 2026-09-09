@@ -4,6 +4,14 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _winsec  # noqa: E402
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 OPERACAO = Path.home() / '.operacao-ia'
 CONFIG_DIR = OPERACAO / 'config'
 SKILLS = Path.home() / '.claude' / 'skills'
@@ -98,12 +106,9 @@ def _gemini_key_from_env():
 def c_gemini():
     if not GEMINI_ENV.exists():
         return False, 'gemini.env não existe'
-    mode = oct(GEMINI_ENV.stat().st_mode)[-3:]
-    if mode != '600':
-        return False, (
-            f'gemini.env está com permissão {mode}; execute novamente a Etapa 1 '
-            'para corrigir para 600'
-        )
+    locked, detail = _winsec.is_locked_down(GEMINI_ENV)
+    if not locked:
+        return False, f'gemini.env: {detail} (Etapa 1)'
     try:
         value = _gemini_key_from_env()
     except Exception as exc:
@@ -157,11 +162,9 @@ def c_google():
         return True, 'Google Ads não conectado (opcional) — não bloqueante'
 
     messages = []
-    mode = oct(GOOGLE_ENV.stat().st_mode)[-3:]
-    if mode != '600':
-        messages.append(
-            f'aviso: google_ads.env está com permissão {mode}; execute novamente a Etapa 4 para corrigir para 600'
-        )
+    locked, detail = _winsec.is_locked_down(GOOGLE_ENV)
+    if not locked:
+        messages.append(f'aviso: google_ads.env: {detail} (Etapa 4)')
 
     try:
         status, credential_count = _google_env_summary()

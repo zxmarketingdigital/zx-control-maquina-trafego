@@ -9,7 +9,10 @@ Uso:
 
 import argparse
 import base64
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows: sem flock nativo. codex_lock() degrada sem lock (provider opcional).
 import glob
 import json
 import os
@@ -19,6 +22,11 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 VALID_SIZES = {
     '1024x1024', '1280x720', '720x1280', '1792x1024', '1024x1792',
@@ -240,6 +248,11 @@ def _codex_pngs(base_dir, recursive=False):
 @contextmanager
 def codex_lock():
     '''Serializa a captura dos PNGs produzidos por chamadas concorrentes.'''
+    if fcntl is None:
+        # Sem flock nativo (Windows). O provider Codex e opcional e nao participa
+        # do caminho padrao com Gemini; degrada sem lock em vez de bloquear o script.
+        yield
+        return
     descriptor = os.open(GERAR_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
@@ -351,9 +364,10 @@ def gen_image2(prompt, output, size, quality, json_mode):
                     source = new_files[0]
 
             if source is None:
+                stdout_tail = (process.stdout or "")[-300:]
                 raise RuntimeError(
                     'codex executou mas nao foi encontrado PNG gerado; '
-                    f'stdout tail: {_redact((process.stdout or '')[-300:])}'
+                    f'stdout tail: {_redact(stdout_tail)}'
                 )
             shutil.copyfile(source, output)
 

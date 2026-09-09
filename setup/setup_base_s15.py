@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Setup 15 — Etapa 0: Base e diagnóstico."""
 import json
+import os
 import platform
 import shutil
 import sys
 from pathlib import Path
+
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 OPERACAO = Path.home() / ".operacao-ia"
 CONFIG_DIR = OPERACAO / "config"
@@ -50,11 +56,17 @@ def check_node():
 
 def check_chrome():
     commands = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
-    paths = (
+    paths = [
         Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         Path("/usr/bin/google-chrome"),
         Path("/usr/bin/chromium"),
-    )
+    ]
+    if os.name == "nt":
+        commands = commands + ("chrome",)
+        for env_var in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.environ.get(env_var)
+            if base:
+                paths.append(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
     if any(shutil.which(command) for command in commands) or any(path.exists() for path in paths):
         print("✅ Google Chrome/Chromium instalado")
     else:

@@ -22,6 +22,11 @@ import re
 import sys
 import time
 
+# --- Windows: console cp1252 nao decodifica emoji; forca UTF-8 na saida ---
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def load_key():
     path = os.path.expanduser('~/.operacao-ia/config/gemini.env')
