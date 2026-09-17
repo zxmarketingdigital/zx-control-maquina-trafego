@@ -63,7 +63,14 @@ def main():
     finally:
         rm = agendador.remover(sistema="Windows", home=home)
         print(rm)
-        if agendador.status(sistema="Windows", home=home)["ok"]:
+        if not rm["ok"]:
+            print("remover() não confirmou a remoção da tarefa.")
+            sys.exit(1)
+        lista = subprocess.run(["schtasks", "/Query", "/FO", "CSV", "/NH"], capture_output=True, text=True)
+        if lista.returncode != 0:
+            print("Não foi possível consultar o Agendador depois de remover.")
+            sys.exit(1)
+        if ('"\\' + agendador.windows_task_name() + '"').lower() in lista.stdout.lower():
             print("A tarefa continuou existindo depois de remover.")
             sys.exit(1)
 
