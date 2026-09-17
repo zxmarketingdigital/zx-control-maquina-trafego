@@ -314,6 +314,81 @@ class AgendadorDarwinRemoverTest(unittest.TestCase):
         self.assertFalse(self.carregado)
 
 
+class AgendadorLinuxCaminhoTest(AgendadorLinuxTest):
+    def test_blog_relativo_vira_absoluto_no_crontab(self):
+        cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        try:
+            r = agendador.instalar(blog_dir=Path("blog"), node_bin="/usr/bin/node", sistema="Linux")
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(r["ok"], r)
+        linha = [l for l in self.crontab.splitlines() if agendador._linha_nossa(l)][0]
+        self.assertIn(os.path.abspath(str(self.blog)).replace("%", "\\%"), linha)
+        self.assertNotIn("cd blog ", linha)
+
+    def test_barra_invertida_no_caminho_recusa_sem_gravar(self):
+        antes = self.crontab
+        blog = Path(self.tmp.name) / "a\\%b" / "blog"
+        r = agendador.instalar(blog_dir=blog, node_bin="/usr/bin/node", sistema="Linux")
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(self.crontab, antes)
+
+
+class AgendadorDarwinInstalarTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.blog = self.home / "blog"
+        self.carregado = True  # job antigo em memória, sem plist no disco
+        self.remove_funciona = True
+        self.load_rc = 0
+        self.chamadas = []
+
+        def fake_run(args, input_text=None):
+            self.chamadas.append(args[:2])
+            if args[:2] == ["launchctl", "remove"]:
+                if self.remove_funciona:
+                    self.carregado = False
+                return _proc(args)
+            if args[:2] == ["launchctl", "load"]:
+                if self.load_rc == 0:
+                    self.carregado = True
+                return _proc(args, returncode=self.load_rc, stderr="Load failed")
+            if args[:2] == ["launchctl", "list"]:
+                linha = "-\t0\t%s\n" % agendador.LABEL if self.carregado else ""
+                return _proc(args, stdout=linha)
+            return _proc(args)
+
+        self.patch = mock.patch.object(agendador, "_run", side_effect=fake_run)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.tmp.cleanup()
+
+    def _instalar(self):
+        return agendador.instalar(hora="10:00", blog_dir=self.blog, node_bin="/usr/bin/node",
+                                  sistema="Darwin", home=self.home)
+
+    def test_job_antigo_sem_plist_e_removido_antes_do_load(self):
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        self.assertLess(self.chamadas.index(["launchctl", "remove"]),
+                        self.chamadas.index(["launchctl", "load"]))
+
+    def test_job_antigo_que_nao_sai_aborta_sem_load(self):
+        self.remove_funciona = False
+        r = self._instalar()
+        self.assertFalse(r["ok"], r)
+        self.assertNotIn(["launchctl", "load"], self.chamadas)
+
+    def test_load_falho_nao_finge_sucesso(self):
+        self.load_rc = 1
+        r = self._instalar()
+        self.assertFalse(r["ok"], r)
+
+
 class AgendadorSemSuporteTest(unittest.TestCase):
     def test_sistema_desconhecido_nao_lanca(self):
         with tempfile.TemporaryDirectory() as tmp:

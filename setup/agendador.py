@@ -118,8 +118,26 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         _run(["launchctl", "unload", str(target)])
+    # O job antigo pode seguir carregado mesmo sem plist; o load não o substituiria.
+    carregado = _job_carregado()
+    if carregado:
+        _run(["launchctl", "remove", LABEL])
+        carregado = _job_carregado()
+    if carregado is None or carregado:
+        return _result(
+            False,
+            "Darwin",
+            f"O job antigo {LABEL} não saiu do launchctl; nada foi reinstalado. "
+            f"Rode: launchctl remove {LABEL} e instale de novo.",
+        )
     target.write_text(plist, encoding="utf-8")
-    _run(["launchctl", "load", str(target)])
+    carga = _run(["launchctl", "load", str(target)])
+    if carga is None or carga.returncode != 0:
+        return _result(
+            False,
+            "Darwin",
+            f"LaunchAgent gravado em {target}, mas o launchctl load falhou: {_output(carga)}",
+        )
     listed = _run(["launchctl", "list"])
     matches = [line for line in _output(listed).splitlines() if _label_carregado(line)]
     if matches:
@@ -318,6 +336,14 @@ def _gravar_crontab(linhas):
 
 
 def _instalar_linux(blog_dir, node_bin, hh, mm):
+    if any(c in str(blog_dir) + node_bin for c in "\\\n\r"):
+        # O cron reinterpreta barra invertida e quebra de linha antes do shell.
+        return _result(
+            False,
+            "Linux",
+            "O caminho do blog ou do node contém barra invertida ou quebra de linha, "
+            "que o cron não aceita. Mova o projeto para uma pasta com nome simples.",
+        )
     atual = _crontab_atual()
     if atual is None:
         return _result(
@@ -377,7 +403,8 @@ def instalar(
     if parsed is None:
         return _result(False, so, f"Hora inválida: {hora!r} (use HH:MM)")
     hh, mm = parsed
-    blog = Path(blog_dir) if blog_dir else BLOG_DIR
+    # Caminho absoluto: o agendador roda a partir de outro diretório.
+    blog = Path(os.path.abspath(str(Path(blog_dir).expanduser()))) if blog_dir else BLOG_DIR
     node = node_bin or shutil.which("node")
     if not node:
         return _result(False, so, "Node não foi encontrado; não foi possível agendar.")
