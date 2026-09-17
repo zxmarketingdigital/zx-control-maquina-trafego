@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -220,7 +221,7 @@ def resize_png(path, target_size):
             return
         raise RuntimeError(
             'Pillow nao instalado e nao ha fallback via sips (so existe no macOS). '
-            'Instale com: python -m pip install Pillow'
+            'Instale com: py -3 -m pip install Pillow (Windows) ou python3 -m pip install Pillow (macOS/Linux)'
         )
 
     with Image.open(path) as source:
@@ -299,6 +300,8 @@ def codex_logged_in():
             [codex_bin, 'login', 'status'],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             stdin=subprocess.DEVNULL,
             timeout=20,
         )
@@ -306,6 +309,46 @@ def codex_logged_in():
         return False
     combined = ((status.stdout or '') + ' ' + (status.stderr or '')).lower()
     return status.returncode == 0 and 'logged in' in combined
+
+
+def _run_com_teto(args, input_text, timeout):
+    '''subprocess.run com teto que vale também para os processos filhos.
+
+    No Windows o codex do npm é um shim .cmd: matar só o cmd.exe deixa o node vivo
+    segurando os pipes, e a coleta da saída espera a geração inteira terminar.
+    Por isso, ao estourar o teto, derruba a árvore toda (taskkill /T no Windows,
+    grupo de processos no macOS/Linux).
+    '''
+    process = subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        start_new_session=(os.name != 'nt'),
+    )
+    try:
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == 'nt':
+            subprocess.run(
+                ['taskkill', '/T', '/F', '/PID', str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                process.kill()
+        try:
+            process.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+        raise subprocess.TimeoutExpired(args, timeout)
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def gen_image2(prompt, output, size, quality, json_mode):
@@ -341,14 +384,12 @@ def gen_image2(prompt, output, size, quality, json_mode):
         log('[image2] chamando codex exec...', json_mode)
         started = time.time()
         try:
-            process = subprocess.run(
+            process = _run_com_teto(
                 [codex_bin, 'exec', '--skip-git-repo-check', '-c', 'mcp_servers={}', '-'],
-                capture_output=True,
-                text=True,
-                input=instructions,
-                timeout=IMAGE2_TIMEOUT,
+                instructions,
+                IMAGE2_TIMEOUT,
             )
-        except subprocess.SubprocessError as error:
+        except (OSError, subprocess.SubprocessError) as error:
             raise RuntimeError(f'codex exec falhou: {_redact(error)}')
         elapsed = round(time.time() - started, 1)
         log(f'[gerar] image2 levou {elapsed}s (teto {IMAGE2_TIMEOUT}s)', json_mode)

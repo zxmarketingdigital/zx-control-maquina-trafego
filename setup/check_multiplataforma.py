@@ -50,8 +50,6 @@ EXCECOES_LINHA = [
     re.compile(r"process\.platform === 'darwin'"),
     re.compile(r"platform\.system\(\) == ['\"]Darwin['\"]"),
     re.compile(r"os\.name == ['\"]nt['\"]"),
-    # sonda de versão dentro do resolvePython() (só roda fora do Windows)
-    re.compile(r"spawnSync\('python3', \['--version'\]"),
     re.compile(r"existe so no macOS|só no macOS|só existe no macOS|macOS em `/Applications`"),
 ]
 

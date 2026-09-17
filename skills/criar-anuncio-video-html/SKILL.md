@@ -43,7 +43,7 @@ Música de fundo: coloque trilhas CC0 em `assets/trilhas-cc0/`, relativa ao dire
 
 ## Passo a passo
 1. **Copiar o template** pra pasta do projeto (copie o conteúdo de `<caminho-da-skill>/template/` para `<pasta>/` com a ferramenta de arquivos do Claude ou `cp -R`) e entre na pasta. Crie `assets/trilhas-cc0/` nessa pasta e adicione a trilha CC0 antes do primeiro build.
-2. **Instalar o capturador** (1x por pasta), em dois comandos: `npm init -y` e depois `npm i puppeteer-core@23`.
+2. **Instalar o capturador** (1x por pasta), em dois comandos: `npm init -y` e depois `npm i puppeteer-core@23`. No PowerShell do Windows, use `npm.cmd init -y` e `npm.cmd i puppeteer-core@23` (a política de execução padrão bloqueia o `npm.ps1`); no Git Bash, no macOS e no Linux, `npm` funciona direto.
 3. **Editar o conteúdo** em `ad.html` (telas: código do terminal, balões do WhatsApp, os bullets EXATOS da oferta com preço âncora→final, textos do CTA) e as **variações** em `variants.mjs` (headline/ordem/ângulo por variação). Dentro da pasta do produto, procurar `CLAUDE.md`, `README`, LP ou arquivo de copy para obter bullets e preços reais. **NUNCA inventar bullets ou preço.** Também editar a constante `MUSIC` no `build.mjs` com uma trilha CC0 disponível.
 4. **QA cedo (barato):** `node qa-bounds.mjs` → tem que dar ✅ em todas as variações. Se estourar, compactar a cena densa (fontes/gaps/padding) e repetir.
 5. **Renderizar:** `node render.mjs` (todas) — o tempo depende da máquina e da quantidade de variações.

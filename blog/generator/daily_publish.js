@@ -19,11 +19,18 @@ const STATUS_FILE = path.join(PUBLIC, 'blog-status.json');
 const AGENT = path.join(ROOT, 'agente', 'gerar_artigo.py');
 
 // Interpretador Python por sistema: PYTHON no ambiente > `py -3` no Windows > python3 > python.
+// Cada candidato é testado de verdade (o Python do Windows pode vir sem o launcher `py`).
 function resolvePython() {
   if (process.env.PYTHON) return { cmd: process.env.PYTHON, pre: [] };
-  if (process.platform === 'win32') return { cmd: 'py', pre: ['-3'] };
-  const probe = spawnSync('python3', ['--version'], { encoding: 'utf8' });
-  return { cmd: probe.status === 0 ? 'python3' : 'python', pre: [] };
+  const candidatos = process.platform === 'win32'
+    ? [{ cmd: 'py', pre: ['-3'] }, { cmd: 'python', pre: [] }, { cmd: 'python3', pre: [] }]
+    : [{ cmd: 'python3', pre: [] }, { cmd: 'python', pre: [] }];
+  for (const c of candidatos) {
+    const probe = spawnSync(c.cmd, [...c.pre, '-c', 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)'], { encoding: 'utf8', timeout: 15000 });
+    if (!probe.error && probe.status === 0) return c;
+  }
+  warn('Python 3 não encontrado (tentei py -3, python3 e python) — defina a variável PYTHON com o caminho do interpretador');
+  return candidatos[0];
 }
 const PY = resolvePython();
 

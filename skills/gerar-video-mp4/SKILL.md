@@ -202,7 +202,7 @@ Timings aproximados (medidos em Apple M-series; varia conforme a máquina):
 
 ### 6. Codificar MP4 H.264
 
-Usar o ffmpeg encontrado no sistema, sem assumir uma versão específica:
+Usar o ffmpeg encontrado no sistema, sem assumir uma versão específica. Os blocos `bash` desta skill rodam no terminal do Claude Code (Git Bash no Windows, shell padrão no macOS/Linux). No PowerShell, rode o `ffmpeg` numa linha só (sem as `\` de continuação) e confira o arquivo com `Get-Item out/video.mp4` no lugar de `ls -lh`.
 
 ```bash
 ffmpeg -y -framerate 30 -i frames/f%04d.png \

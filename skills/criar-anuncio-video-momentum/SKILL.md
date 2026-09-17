@@ -39,8 +39,10 @@ Transições: Hook→Counter (slide de baixo), Counter→Offer (wipe), Offer→C
 1. **Copiar o template** pra dentro da pasta do produto (ou uma pasta nova):
    ```bash
    cp -R ~/.claude/skills/criar-anuncio-video-momentum/template ~/projetos/{slug}/momentum-ad
-   cd ~/projetos/{slug}/momentum-ad && npm install
+   cd ~/projetos/{slug}/momentum-ad
+   npm install
    ```
+   No PowerShell do Windows, troque `npm` por `npm.cmd` e `npx` por `npx.cmd` em todos os comandos desta skill (a política de execução padrão bloqueia `npm.ps1`/`npx.ps1`). No Git Bash, no macOS e no Linux, use como está.
 2. **Editar SÓ `src/content.ts`** — hook (4 linhas), contador (label/target/barras), oferta (pre/preço âncora/preço final/chips), CTA (headline/botão/hint). **NUNCA inventar bullets ou preço** — puxar da LP / `CLAUDE.md` do produto. Se não achar, perguntar ao Rafael.
 3. **Preview no Studio** (opcional, recomendado):
    ```bash

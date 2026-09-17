@@ -190,6 +190,27 @@ class TimeoutImagemTest(unittest.TestCase):
                 self.assertEqual(gerar._image2_timeout(), esperado, valor)
 
 
+class TetoDeProcessoTest(unittest.TestCase):
+    """O teto do image2 precisa valer mesmo com um processo neto segurando os pipes."""
+
+    def test_timeout_derruba_arvore(self):
+        gerar = _load("gerar_mod_teto", ROOT / "skills/gerar-imagem/scripts/gerar.py")
+        neto = "import time; time.sleep(60)"
+        filho = ("import subprocess, sys, time; "
+                 "subprocess.Popen([sys.executable, '-c', %r]); time.sleep(60)" % neto)
+        inicio = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            gerar._run_com_teto([sys.executable, "-c", filho], "prompt com acento: promoção ☕", 2)
+        self.assertLess(time.monotonic() - inicio, 12)
+
+    def test_stdin_utf8_chega_inteiro(self):
+        gerar = _load("gerar_mod_utf8", ROOT / "skills/gerar-imagem/scripts/gerar.py")
+        codigo = "import sys; dado = sys.stdin.buffer.read(); sys.stdout.buffer.write(dado.decode('utf-8')[::-1].encode('utf-8'))"
+        r = gerar._run_com_teto([sys.executable, "-c", codigo], "café ☕", 30)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "☕ éfac")
+
+
 class CheckEstaticoTest(unittest.TestCase):
     def test_repo_sem_dependencia_exclusiva_do_macos(self):
         achados = check_multiplataforma.varrer() + check_multiplataforma.ast_39()
