@@ -10,6 +10,7 @@ lançam exceção por causa do sistema operacional.
 """
 import getpass
 import hashlib
+import locale
 import os
 import platform
 import re
@@ -63,22 +64,37 @@ def _result(ok, sistema, detalhe):
     return {"ok": bool(ok), "sistema": sistema, "detalhe": detalhe}
 
 
+def _codec():
+    return locale.getpreferredencoding(False) or "utf-8"
+
+
 def _run(args, input_text=None):
-    """Roda um comando curto; devolve CompletedProcess ou None se não rodou."""
+    """Roda um comando curto; devolve CompletedProcess ou None se não rodou.
+
+    Trafega bytes e decodifica aqui em vez de usar text=True porque o modo texto
+    do subprocess traduz quebras de linha: um CR literal dentro de uma linha do
+    crontab (ou da saída do schtasks) viraria LF e seria regravado como duas
+    linhas, quebrando um agendamento alheio. surrogateescape completa o par: a
+    saída localizada do schtasks e bytes legados do crontab não lançam e voltam
+    idênticos na regravação.
+    """
+    codec = _codec()
     try:
-        return subprocess.run(
+        proc = subprocess.run(
             args,
-            input=input_text,
+            input=input_text.encode(codec, "surrogateescape") if input_text is not None else None,
             capture_output=True,
-            text=True,
-            # schtasks sai na página de códigos do console e o crontab pode ter bytes
-            # legados: surrogateescape não lança e devolve os mesmos bytes na regravação.
-            errors="surrogateescape",
             timeout=CMD_TIMEOUT,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
+    return subprocess.CompletedProcess(
+        proc.args,
+        proc.returncode,
+        (proc.stdout or b"").decode(codec, "surrogateescape"),
+        (proc.stderr or b"").decode(codec, "surrogateescape"),
+    )
 
 
 def _output(proc):

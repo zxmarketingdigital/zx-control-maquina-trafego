@@ -405,6 +405,11 @@ class AgendadorProtecoesTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_run_nao_traduz_cr(self):
+        eco = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
+        lido = agendador._run([sys.executable, "-c", eco], input_text="a\r#b\n")
+        self.assertEqual(lido.stdout, "a\r#b\n")
+
     def test_run_preserva_bytes_que_nao_decodificam(self):
         legado = b"# manuten\xe7\xe3o \x81\x8d\n"
         eco = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
@@ -602,6 +607,17 @@ class AgendadorCronSeparadorTest(unittest.TestCase):
         self.patch_which.stop()
         self.patch_run.stop()
         self.tmp.cleanup()
+
+    def test_cr_em_linha_alheia_sobrevive(self):
+        # text=True traduziria o CR em LF e partiria o comando do vizinho em duas linhas.
+        self.crontab = "0 1 * * * /usr/bin/printf 'A\r#B' >> /tmp/probe\n"
+        original = self.crontab
+        r = agendador.instalar(blog_dir=self.blog, node_bin="/usr/bin/node", sistema="Linux")
+        self.assertTrue(r["ok"], r)
+        self.assertIn(original.rstrip("\n"), self.crontab)
+        r = agendador.remover(sistema="Linux")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.crontab, original)
 
     def test_instalar_remover_nao_deixa_fragmento(self):
         r = agendador.instalar(blog_dir=self.blog, node_bin="/usr/bin/node", sistema="Linux")
