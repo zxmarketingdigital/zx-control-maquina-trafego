@@ -234,6 +234,16 @@ class CrontabAtualTest(unittest.TestCase):
             r = agendador.remover(sistema="Linux")
         self.assertFalse(r["ok"], r)
 
+    def test_instalar_com_crontab_ilegivel_aborta_com_mensagem_clara(self):
+        # Chamador ponta-a-ponta: erro genérico do "crontab -l" não pode virar
+        # gravação de crontab só com a nossa linha (perda dos agendamentos do
+        # usuário) nem lançar traceback cru — tem que devolver ok=False com detalhe.
+        with self._com_run(1, stderr="crontab: spool ilegível\n"):
+            r = agendador.instalar(sistema="Linux", blog_dir=Path("/tmp/blog"), node_bin="node")
+        self.assertFalse(r["ok"], r)
+        self.assertIsInstance(r["detalhe"], str)
+        self.assertNotIn("Traceback", r["detalhe"])
+
 
 class AgendadorDarwinRemoverTest(unittest.TestCase):
     def setUp(self):
