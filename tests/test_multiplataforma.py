@@ -37,6 +37,14 @@ def _node_sempre_executavel(test):
     test.addCleanup(patch.stop)
 
 
+SO_CRON = unittest.skipIf(
+    os.name == "nt",
+    "simular o cron no Windows não prova nada: todo caminho do host tem barra invertida, "
+    "que o agendador recusa de propósito para o crontab. Quem cobre o Linux de verdade é o "
+    "job ubuntu-latest do CI.",
+)
+
+
 def _chamada(chamadas, *prefixo):
     """Pega a chamada pelo COMEÇO dos argumentos, nunca pela posição na lista.
 
@@ -174,6 +182,7 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertFalse(r["ok"])
 
 
+@SO_CRON
 class AgendadorLinuxTest(unittest.TestCase):
     def setUp(self):
         _node_sempre_executavel(self)
@@ -222,6 +231,7 @@ class AgendadorLinuxTest(unittest.TestCase):
         self.assertIn("echo outro", self.crontab)
 
 
+@SO_CRON
 class CrontabAtualTest(unittest.TestCase):
     """_crontab_atual() só pode tratar como vazio o caso 'no crontab for <user>';
     qualquer outro returncode != 0 tem que abortar (None), nunca sobrescrever
@@ -338,6 +348,7 @@ class AgendadorDarwinRemoverTest(unittest.TestCase):
         self.assertFalse(self.carregado)
 
 
+@SO_CRON
 class AgendadorLinuxCaminhoTest(AgendadorLinuxTest):
     def test_blog_relativo_vira_absoluto_no_crontab(self):
         cwd = os.getcwd()
@@ -470,9 +481,13 @@ class AgendadorProtecoesTest(unittest.TestCase):
             self.assertEqual(agendador._resolver_node("node"),
                              os.path.join(os.getcwd(), "bin", "node"))
         with mock.patch.object(agendador.shutil, "which", return_value=None):
-            r = agendador.instalar(blog_dir=self.base / "blog", node_bin="node", sistema="Linux")
+            # Darwin, não Linux: aqui o que se mede é o node ausente, e o guard de
+            # barra invertida do cron reprovaria antes disso quando o host é Windows.
+            r = agendador.instalar(blog_dir=self.base / "blog", node_bin="node", sistema="Darwin")
         self.assertFalse(r["ok"], r)
+        self.assertIn("Node não foi encontrado", r["detalhe"])
 
+    @unittest.skipIf(os.name == "nt", "no Windows quem decide é a extensão, não o bit de execução")
     def test_node_sem_permissao_de_execucao_nao_mexe_no_agendamento(self):
         node = self.base / "node"
         node.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -625,6 +640,7 @@ class AgendadorRollbackTest(unittest.TestCase):
         self.assertEqual(self.chamadas.count(["launchctl", "load"]), 2)
 
 
+@SO_CRON
 class AgendadorCronSeparadorTest(unittest.TestCase):
     """O crontab separa registros só por LF: U+2028 num caminho não pode virar linha nova."""
 
