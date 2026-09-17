@@ -290,14 +290,32 @@ def codex_lock():
             os.close(descriptor)
 
 
-def codex_logged_in():
-    '''Retorna True somente quando o status do Codex confirma uma sessao.'''
+def _codex_argv():
+    '''Prefixo de comando do Codex, ou None se nao estiver instalado.
+
+    No Windows o npm instala um shim codex.cmd, que o subprocess executa via cmd.exe;
+    um caminho de perfil com & (ex.: C:\\Users\\Ana&Leo) quebra nesse shim. Quando o
+    entrypoint JavaScript do pacote existe ao lado do shim, chama o node direto.
+    '''
     codex_bin = shutil.which('codex')
     if codex_bin is None:
+        return None
+    if os.name == 'nt' and codex_bin.lower().endswith(('.cmd', '.bat')):
+        entry = os.path.join(os.path.dirname(codex_bin), 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
+        node_bin = shutil.which('node')
+        if node_bin and os.path.isfile(entry):
+            return [node_bin, entry]
+    return [codex_bin]
+
+
+def codex_logged_in():
+    '''Retorna True somente quando o status do Codex confirma uma sessao.'''
+    codex_argv = _codex_argv()
+    if codex_argv is None:
         return False
     try:
         status = subprocess.run(
-            [codex_bin, 'login', 'status'],
+            codex_argv + ['login', 'status'],
             capture_output=True,
             text=True,
             encoding='utf-8',
@@ -353,8 +371,8 @@ def _run_com_teto(args, input_text, timeout):
 
 def gen_image2(prompt, output, size, quality, json_mode):
     '''Gera via Codex CLI e tool nativa image_gen (gpt-image-2).'''
-    codex_bin = shutil.which('codex')
-    if codex_bin is None:
+    codex_argv = _codex_argv()
+    if codex_argv is None:
         raise RuntimeError('codex CLI nao instalado')
     if not codex_logged_in():
         raise RuntimeError('codex nao esta logado')
@@ -385,7 +403,7 @@ def gen_image2(prompt, output, size, quality, json_mode):
         started = time.time()
         try:
             process = _run_com_teto(
-                [codex_bin, 'exec', '--skip-git-repo-check', '-c', 'mcp_servers={}', '-'],
+                codex_argv + ['exec', '--skip-git-repo-check', '-c', 'mcp_servers={}', '-'],
                 instructions,
                 IMAGE2_TIMEOUT,
             )

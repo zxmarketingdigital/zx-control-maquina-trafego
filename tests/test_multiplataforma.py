@@ -211,6 +211,28 @@ class TetoDeProcessoTest(unittest.TestCase):
         self.assertEqual(r.stdout, "☕ éfac")
 
 
+class CodexArgvTest(unittest.TestCase):
+    """No Windows o shim codex.cmd passa pelo cmd.exe; o entrypoint JS evita isso."""
+
+    def test_windows_cmd_usa_node_e_entrypoint(self):
+        gerar = _load("gerar_mod_argv", ROOT / "skills/gerar-imagem/scripts/gerar.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            npm_dir = os.path.join(tmp, "Ana&Leo", "npm")
+            entry = os.path.join(npm_dir, "node_modules", "@openai", "codex", "bin", "codex.js")
+            os.makedirs(os.path.dirname(entry))
+            Path(entry).write_text("", encoding="utf-8")
+            shim = os.path.join(npm_dir, "codex.cmd")
+            achados = {"codex": shim, "node": "node.exe"}
+            with mock.patch.object(gerar.os, "name", "nt"), \
+                    mock.patch.object(gerar.shutil, "which", side_effect=achados.get):
+                self.assertEqual(gerar._codex_argv(), ["node.exe", entry])
+            with mock.patch.object(gerar.os, "name", "posix"), \
+                    mock.patch.object(gerar.shutil, "which", side_effect=achados.get):
+                self.assertEqual(gerar._codex_argv(), [shim])
+            with mock.patch.object(gerar.shutil, "which", return_value=None):
+                self.assertIsNone(gerar._codex_argv())
+
+
 class CheckEstaticoTest(unittest.TestCase):
     def test_repo_sem_dependencia_exclusiva_do_macos(self):
         achados = check_multiplataforma.varrer() + check_multiplataforma.ast_39()

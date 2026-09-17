@@ -1,10 +1,9 @@
 // QA de safe-zone p/ todas as variações: nada pode cruzar topo 14% (269px) nem base 75% (1440px).
 // Varre a timeline inteira e considera a opacidade efetiva (herdada da cena).
 import puppeteer from 'puppeteer-core';
-import { join, dirname, win32 } from 'path';
+import { delimiter, join, dirname, win32 } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { existsSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { accessSync, constants, existsSync } from 'fs';
 import { VARIANTS } from './variants.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -19,8 +18,10 @@ function resolveChrome() {
     }
   } else {
     for (const nome of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-      const r = spawnSync('which', [nome], { encoding: 'utf8' });
-      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+      for (const dir of (process.env.PATH || '').split(delimiter).filter(Boolean)) {
+        const exe = join(dir, nome);
+        try { accessSync(exe, constants.X_OK); return exe; } catch { /* segue procurando */ }
+      }
     }
   }
   throw new Error('Chrome não encontrado. Instale o Google Chrome ou defina CHROME_PATH com o caminho do executável.');

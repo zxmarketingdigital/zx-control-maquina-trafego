@@ -1,8 +1,8 @@
 // Renderiza TODAS as variações: frames determinísticos por variante + timings.json (áudio).
 import puppeteer from 'puppeteer-core';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { dirname, join, win32 } from 'path';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { delimiter, dirname, join, win32 } from 'path';
+import { accessSync, constants, existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { VARIANTS } from './variants.mjs';
 
@@ -18,8 +18,10 @@ function resolveChrome() {
     }
   } else {
     for (const nome of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-      const r = spawnSync('which', [nome], { encoding: 'utf8' });
-      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+      for (const dir of (process.env.PATH || '').split(delimiter).filter(Boolean)) {
+        const exe = join(dir, nome);
+        try { accessSync(exe, constants.X_OK); return exe; } catch { /* segue procurando */ }
+      }
     }
   }
   throw new Error('Chrome não encontrado. Instale o Google Chrome ou defina CHROME_PATH com o caminho do executável.');

@@ -126,8 +126,10 @@ function resolveChrome() {
     }
   } else {
     for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-      const r = spawnSync('which', [name], { encoding: 'utf8' });
-      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+      for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+        const exe = path.join(dir, name);
+        try { fs.accessSync(exe, fs.constants.X_OK); return exe; } catch { /* segue procurando */ }
+      }
     }
   }
   throw new Error('Chrome não encontrado. Instale o Google Chrome ou defina CHROME_PATH.');
