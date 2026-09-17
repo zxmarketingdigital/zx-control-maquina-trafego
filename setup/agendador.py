@@ -115,9 +115,27 @@ def _parse_hora(hora):
 
 # ---------------------------------------------------------------- macOS
 
-def _gravar_atomico(path, conteudo):
+def _gravar_atomico(path, conteudo, modo=0o644):
+    """Grava trocando o arquivo de uma vez, com o modo explícito.
+
+    O temporário nasce 0600 e só depois recebe `modo`: deixar o umask decidir
+    criaria um plist gravável pelo grupo (umask 0002 dá 0664) e o launchd recusa
+    carregar um plist assim — inclusive na restauração, que usaria a mesma
+    rotina e deixaria o agendamento anterior sem voltar.
+    """
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(conteudo)
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as saida:
+            saida.write(conteudo)
+    except Exception:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise
+    if os.name != "nt":
+        os.chmod(str(tmp), modo)
     os.replace(str(tmp), str(path))
 
 

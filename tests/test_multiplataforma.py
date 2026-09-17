@@ -639,6 +639,22 @@ class AgendadorRollbackTest(unittest.TestCase):
         self.assertEqual(self.plist.read_bytes(), b"<plist>anterior</plist>")
         self.assertEqual(self.chamadas.count(["launchctl", "load"]), 2)
 
+    @unittest.skipIf(os.name == "nt", "modo de arquivo POSIX não existe no Windows")
+    def test_plist_nunca_nasce_gravavel_pelo_grupo(self):
+        """umask 0002 deixaria o plist 0664 e o launchd recusa carregar assim."""
+        anterior = os.umask(0o002)
+        self.addCleanup(os.umask, anterior)
+        self.plist.chmod(0o644)
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        modo = self.plist.stat().st_mode & 0o777
+        self.assertEqual(modo, 0o644, oct(modo))
+        # a restauração usa a mesma rotina: também não pode voltar 0664
+        agendador._restaurar_plist(self.plist, b"<plist>anterior</plist>")
+        modo = self.plist.stat().st_mode & 0o777
+        self.assertEqual(modo, 0o644, oct(modo))
+        self.assertFalse(list(self.plist.parent.glob("*.tmp")))
+
 
 @SO_CRON
 class AgendadorCronSeparadorTest(unittest.TestCase):
