@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from xml.sax.saxutils import escape as xml_escape
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agendador  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,8 +21,6 @@ CONFIG_EXAMPLE = BLOG_DIR / "generator" / "config.example.json"
 CONFIG_PATH = BLOG_DIR / "config.json"
 QUEUE_PATH = BLOG_DIR / "queue.json"
 DAILY_PUBLISH = BLOG_DIR / "generator" / "daily_publish.js"
-PLIST_TEMPLATE = ROOT / "launchagents" / "com.setup15.blog-daily.plist.template"
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.setup15.blog-daily.plist"
 
 
 YES = {"s", "sim", "y", "yes", "1"}
@@ -314,7 +314,7 @@ def ensure_queue(config):
 
     if regenerate:
         print(f'Gerando a fila para o nicho: {nicho}')
-        python_bin = "python3" if shutil.which("python3") else sys.executable
+        python_bin = sys.executable
         result = run_command([
             python_bin,
             "blog/agente/gerar_fila.py",
@@ -419,65 +419,22 @@ def publish_first_article(config):
 
 
 def install_launchagent():
-    if platform.system() != "Darwin":
-        print("\nA automação diária por LaunchAgent só está disponível no macOS.")
+    if not ask_yes_no("Quer agendar a publicação diária às 08:00?", default=True):
+        print("Agendamento diário não instalado.")
         print("Você pode rodar manualmente: node blog/generator/daily_publish.js")
-        print("ou agendar esse comando via cron no seu sistema.")
         return
 
-    if not ask_yes_no("Quer instalar o LaunchAgent de publicação diária às 08:00?", default=True):
-        print("LaunchAgent não instalado.")
-        return
-
-    node_bin = shutil.which("node")
-    python_bin = shutil.which("python3") or sys.executable
-    if not node_bin:
-        print("Node não foi encontrado; não foi possível instalar o LaunchAgent.")
-        return
-    if not PLIST_TEMPLATE.is_file():
-        print(f"Template não encontrado: {PLIST_TEMPLATE}")
-        return
-
-    try:
-        template = PLIST_TEMPLATE.read_text(encoding="utf-8")
-        plist = template.replace("{BLOG_DIR}", xml_escape(str(BLOG_DIR)))
-        plist = plist.replace("{HOME}", xml_escape(str(Path.home())))
-        plist = plist.replace("{NODE_BIN}", xml_escape(node_bin))
-        plist = plist.replace("{NODE}", xml_escape(node_bin))
-        plist = plist.replace("{PYTHON}", xml_escape(python_bin))
-        PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        (BLOG_DIR / "logs").mkdir(parents=True, exist_ok=True)
-        already_exists = PLIST_PATH.exists()
-        if already_exists:
-            subprocess.run(["launchctl", "unload", str(PLIST_PATH)], capture_output=True, text=True, check=False)
-        PLIST_PATH.write_text(plist, encoding="utf-8")
-        subprocess.run(["launchctl", "load", str(PLIST_PATH)], capture_output=True, text=True, check=False)
-    except OSError as exc:
-        print(f"Não foi possível gravar ou carregar o LaunchAgent: {exc}")
-        return
-
-    try:
-        listed = subprocess.run(
-            ["launchctl", "list"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        matches = [line for line in (listed.stdout or "").splitlines() if "com.setup15.blog-daily" in line]
-        print(f"LaunchAgent instalado em {PLIST_PATH}.")
-        print("Validação (launchctl list | grep setup15.blog-daily):")
-        if matches:
-            print("\n".join(matches))
-        else:
-            print("Label ainda não apareceu na lista; confira o status do launchctl.")
-    except OSError as exc:
-        print(f"Não foi possível validar o LaunchAgent: {exc}")
+    resultado = agendador.instalar(hora="08:00", blog_dir=BLOG_DIR)
+    print(resultado["detalhe"])
+    if not resultado["ok"]:
+        print("Você pode rodar manualmente: node blog/generator/daily_publish.js")
 
 
 def print_deploy_instructions():
     print("\nDeploy não será executado automaticamente.")
     print("Quando tiver uma conta Cloudflare e o projeto pronto, rode:")
-    print("  cd blog && wrangler pages deploy public/ --project-name=<nome>")
+    print("  cd blog")
+    print("  wrangler pages deploy public/ --project-name=<nome>")
     print("Substitua <nome> pelo nome do projeto Pages desejado.")
 
 
@@ -499,7 +456,7 @@ def main():
     if products_ready:
         install_launchagent()
     else:
-        print("LaunchAgent não instalado enquanto os produtos reais não forem preenchidos.")
+        print("Agendamento diário não instalado enquanto os produtos reais não forem preenchidos.")
     print_deploy_instructions()
     print("\nSetup do blog concluído. O killswitch do agente é ~/.operacao-ia/config/.blog-killswitch.")
     return 0

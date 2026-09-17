@@ -7,12 +7,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agendador  # noqa: E402
+
 OPERACAO = Path.home() / '.operacao-ia'
 CONFIG_DIR = OPERACAO / 'config'
 CONFIG = CONFIG_DIR / 'config.json'
 PROGRESS = CONFIG_DIR / 'setup15_progress.json'
 SKILLS_HOME = Path.home() / '.claude' / 'skills'
-BLOG_PLIST = Path.home() / 'Library' / 'LaunchAgents' / 'com.setup15.blog-daily.plist'
 
 ENV_FILES = [
     'gemini.env',
@@ -171,29 +173,12 @@ def revert_phase(progress):
 
 
 def remove_blog_launchagent():
-    if not BLOG_PLIST.exists():
-        print('  - LaunchAgent blog-daily: já removido')
-        return
-
-    try:
-        unloaded = subprocess.run(
-            ['launchctl', 'unload', str(BLOG_PLIST)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if unloaded.returncode == 0:
-            print('  ✓ LaunchAgent blog-daily: descarregado')
-        else:
-            detail = (unloaded.stderr or unloaded.stdout or '').strip()
-            print(
-                '  ⚠️  LaunchAgent blog-daily: unload não confirmou o descarregamento '
-                f'(o job pode já não estar carregado{": " + detail if detail else ""})'
-            )
-    except OSError as exc:
-        print(f'  ⚠️  LaunchAgent blog-daily: não foi possível executar unload ({exc})')
-
-    remove_path(BLOG_PLIST, 'plist do LaunchAgent blog-daily')
+    resultado = agendador.remover()
+    if resultado['ok']:
+        print(f"  ✓ Agendamento blog-daily: {resultado['detalhe']}")
+    else:
+        ERRORS.append(f"agendamento blog-daily: {resultado['detalhe']}")
+        print(f"  ❌ Agendamento blog-daily: {resultado['detalhe']}")
 
 
 def uninstall(choice):

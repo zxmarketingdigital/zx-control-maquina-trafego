@@ -66,10 +66,9 @@ def backup_existing(path: Path, backup_dir: Path) -> None:
 
     backup_dir.mkdir(parents=True, exist_ok=False)
     target = backup_dir / path.name
-    if path.is_symlink():
-        target.symlink_to(path.readlink())
-    else:
-        shutil.copy2(path, target)
+    # copy2 segue o link e copia o conteúdo: recriar symlink exige Modo de
+    # Desenvolvedor no Windows, e o backup só precisa do conteúdo.
+    shutil.copy2(path, target)
 
 
 def _print_contract() -> None:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Setup 15 — Etapa 0: Base e diagnóstico."""
 import json
+import os
 import platform
 import shutil
 import sys
@@ -50,11 +51,16 @@ def check_node():
 
 def check_chrome():
     commands = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
-    paths = (
+    paths = [
         Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         Path("/usr/bin/google-chrome"),
         Path("/usr/bin/chromium"),
-    )
+    ]
+    if platform.system() == "Windows":
+        for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.environ.get(env_name)
+            if base:
+                paths.append(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
     if any(shutil.which(command) for command in commands) or any(path.exists() for path in paths):
         print("✅ Google Chrome/Chromium instalado")
     else:
