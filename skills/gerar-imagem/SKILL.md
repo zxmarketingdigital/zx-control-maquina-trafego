@@ -37,8 +37,10 @@ Nao usar para: logos vetoriais com texto preciso, edicao de imagem existente ou 
 ## Uso
 
 ```bash
-python3 ~/.claude/skills/gerar-imagem/scripts/gerar.py --prompt 'professional youtube thumbnail, robot mascot coral orange, dark background' --output /tmp/thumb.png --size 1280x720
+python3 ~/.claude/skills/gerar-imagem/scripts/gerar.py --prompt 'professional youtube thumbnail, robot mascot coral orange, dark background' --output thumb.png --size 1280x720
 ```
+
+No Windows, troque `python3` por `py -3` (o `python3` do Windows costuma ser só um atalho para a Microsoft Store). Se `~` não for expandido no seu terminal, use o caminho completo da pasta do usuário.
 
 Flags:
 
@@ -69,11 +71,12 @@ Uma skill que precise de uma thumbnail pode chamar:
 import json
 import os
 import subprocess
+import sys
 
 result = subprocess.run([
-    'python3', os.path.expanduser('~/.claude/skills/gerar-imagem/scripts/gerar.py'),
+    sys.executable, os.path.expanduser('~/.claude/skills/gerar-imagem/scripts/gerar.py'),
     '--prompt', THUMB_PROMPT,
-    '--output', '/tmp/thumb.png',
+    '--output', 'thumb.png',
     '--size', '1280x720',
     '--json',
 ], capture_output=True, text=True, check=True)
@@ -86,5 +89,6 @@ print(f"Thumb gerada via {info['provider']} em {info['elapsed_s']}s")
 - **Gemini:** usa `GEMINI_API_KEY` ou `GOOGLE_API_KEY` do ambiente e tambem procura essas chaves em `~/.operacao-ia/config/*.env`. A chamada usa o Google GenAI SDK.
 - **Imagen 4:** usa o mesmo cliente Google GenAI SDK e a mesma chave. O resultado e normalizado para o tamanho solicitado.
 - **Codex:** `codex exec` usa a tool nativa `image_gen` e exige login ChatGPT. O script verifica `codex login status` antes de considera-lo no modo automatico. A imagem pode sair em dimensao diferente da solicitada e e ajustada com pad-fit.
-- **Pad-fit sem distorcao:** o gpt-image-2 pode ignorar `--size` e devolver uma dimensao diferente. Redimensionar com `sips -z` cru forca a dimensao e estica o conteudo; por isso o script usa contain, preserva a proporcao e preenche a sobra com a cor de fundo amostrada da propria arte. O fallback sem Pillow usa `sips` apenas depois de calcular dimensoes proporcionais.
+- **Pad-fit sem distorcao:** o gpt-image-2 pode ignorar `--size` e devolver uma dimensao diferente. Redimensionar com `sips -z` cru forca a dimensao e estica o conteudo; por isso o script usa contain, preserva a proporcao e preenche a sobra com a cor de fundo amostrada da propria arte. Sem Pillow, o fallback usa `sips` (existe so no macOS) depois de calcular dimensoes proporcionais; no Windows e no Linux o script pede `python -m pip install Pillow`.
+- **Tempo limite do Codex:** `ZX_IMAGE2_TIMEOUT` (segundos, padrao 600). O tempo de cada chamada vai para o log.
 - **Modo silencioso:** em `--json`, nenhum log de progresso vai para stdout, para que o chamador possa usar `json.loads(result.stdout)` sem tratamento extra.

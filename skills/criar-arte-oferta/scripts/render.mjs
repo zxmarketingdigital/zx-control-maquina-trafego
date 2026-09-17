@@ -4,17 +4,18 @@
 // Escreve <dir>/<slug>-oferta-quadrado.png (2160x2160) e <dir>/<slug>-oferta-story.png (2160x3840)
 import { chromium } from 'playwright';
 import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { join, resolve } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 
-const skillDir = new URL('..', import.meta.url).pathname;
-const dir = resolve(process.argv[2] || process.cwd()) + '/';
-const cardHtml = skillDir + 'assets/card.html';
+const skillDir = fileURLToPath(new URL('..', import.meta.url));
+const dir = resolve(process.argv[2] || process.cwd());
+const cardHtml = join(skillDir, 'assets', 'card.html');
 
-if (!existsSync(dir + 'data.json')) {
-  console.error(`ERRO: não achei ${dir}data.json`);
+if (!existsSync(join(dir, 'data.json'))) {
+  console.error(`ERRO: não achei ${join(dir, "data.json")}`);
   process.exit(1);
 }
-const data = JSON.parse(readFileSync(dir + 'data.json', 'utf8'));
+const data = JSON.parse(readFileSync(join(dir, 'data.json'), 'utf8'));
 
 const jobs = [];
 for (const [chave, prod] of Object.entries(data)) {
@@ -29,7 +30,10 @@ for (const [p, f, out] of jobs) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   await page.addInitScript((d) => { window.__CARD_DATA__ = d; }, data);
-  await page.goto('file://' + cardHtml + '?p=' + p + '&f=' + f, { waitUntil: 'load' });
+  const cardUrl = pathToFileURL(cardHtml);
+  cardUrl.searchParams.set('p', p);
+  cardUrl.searchParams.set('f', f);
+  await page.goto(cardUrl.href, { waitUntil: 'load' });
   try {
     await page.waitForFunction(() => window.__READY__ === true, { timeout: 20000 });
   } catch {
@@ -43,7 +47,7 @@ for (const [p, f, out] of jobs) {
     console.warn(`AVISO: "${p}" (${f}) ainda transborda no menor tamanho — o PNG pode sair cortado. Reduza itens ou encurte rótulos.`);
   }
   const el = await page.$('#card');
-  await el.screenshot({ path: dir + out });
+  await el.screenshot({ path: join(dir, out) });
   console.log('ok →', out);
   await ctx.close();
 }

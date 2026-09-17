@@ -18,6 +18,15 @@ const KILLSWITCH = path.join(os.homedir(), '.operacao-ia', 'config', '.blog-kill
 const STATUS_FILE = path.join(PUBLIC, 'blog-status.json');
 const AGENT = path.join(ROOT, 'agente', 'gerar_artigo.py');
 
+// Interpretador Python por sistema: PYTHON no ambiente > `py -3` no Windows > python3 > python.
+function resolvePython() {
+  if (process.env.PYTHON) return { cmd: process.env.PYTHON, pre: [] };
+  if (process.platform === 'win32') return { cmd: 'py', pre: ['-3'] };
+  const probe = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+  return { cmd: probe.status === 0 ? 'python3' : 'python', pre: [] };
+}
+const PY = resolvePython();
+
 let CONFIG = {};
 try { CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')); } catch (_) { CONFIG = {}; }
 
@@ -72,7 +81,7 @@ function generateMissingArticle(target) {
   log(`conteúdo ausente; gerando artigo com Gemini para ${target.slug}...`);
   let result;
   try {
-    result = spawnSync('python3', [AGENT, '--slug', target.slug], { cwd: ROOT, encoding: 'utf8', timeout: 180000 });
+    result = spawnSync(PY.cmd, [...PY.pre, AGENT, '--slug', target.slug], { cwd: ROOT, encoding: 'utf8', timeout: 180000 });
   } catch (e) {
     err(`não foi possível iniciar o agente: ${e.message}`);
     return false;
@@ -171,9 +180,9 @@ function generateThumbnail(keyword, frontmatter) {
     const optimizer = path.join(GENERATOR, 'optimize_thumb.py');
     if (!fs.existsSync(script) || !fs.existsSync(optimizer)) { warn('gerador de thumbnail não disponível — seguindo sem imagem'); return; }
     fs.mkdirSync(dir, { recursive: true });
-    const generated = spawnSync('python3', [script, '--prompt', prompt, '--output', temporary, '--size', '1280x720', '--provider', 'auto', '--json'], { encoding: 'utf8', timeout: 200000 });
+    const generated = spawnSync(PY.cmd, [...PY.pre, script, '--prompt', prompt, '--output', temporary, '--size', '1280x720', '--provider', 'auto', '--json'], { encoding: 'utf8', timeout: 200000 });
     if (generated.status !== 0 || !fs.existsSync(temporary)) { warn(`thumbnail não gerada (exit ${generated.status}) — seguindo sem imagem`); return; }
-    const optimized = spawnSync('python3', [optimizer, '--in', temporary, '--out', output], { encoding: 'utf8', timeout: 30000 });
+    const optimized = spawnSync(PY.cmd, [...PY.pre, optimizer, '--in', temporary, '--out', output], { encoding: 'utf8', timeout: 30000 });
     fs.rmSync(temporary, { force: true });
     if (optimized.status === 0 && fs.existsSync(output)) log(`thumbnail gerada: assets/thumbs/${keyword.slug}.webp`);
     else warn('otimização da thumbnail falhou — seguindo sem imagem');

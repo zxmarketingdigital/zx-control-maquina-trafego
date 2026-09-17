@@ -1,12 +1,31 @@
 // QA de safe-zone p/ todas as variações: nada pode cruzar topo 14% (269px) nem base 75% (1440px).
 // Varre a timeline inteira e considera a opacidade efetiva (herdada da cena).
 import puppeteer from 'puppeteer-core';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join, dirname, win32 } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { existsSync } from 'fs';
+import { spawnSync } from 'child_process';
 import { VARIANTS } from './variants.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+function resolveChrome() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  if (process.platform === 'darwin') return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (process.platform === 'win32') {
+    const bases = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
+    for (const base of bases) {
+      const exe = win32.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe');
+      if (existsSync(exe)) return exe;
+    }
+  } else {
+    for (const nome of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+      const r = spawnSync('which', [nome], { encoding: 'utf8' });
+      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+    }
+  }
+  throw new Error('Chrome não encontrado. Instale o Google Chrome ou defina CHROME_PATH com o caminho do executável.');
+}
+const CHROME = resolveChrome();
 const TOP = 268.8, BOT = 1440;
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox', '--hide-scrollbars'] });
 
@@ -15,7 +34,7 @@ for (const v of VARIANTS) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
   await page.evaluateOnNewDocument(vv => { window.__VARIANT = vv; }, v);
-  await page.goto('file://' + join(__dirname, 'ad.html'), { waitUntil: 'networkidle0' });
+  await page.goto(pathToFileURL(join(__dirname, 'ad.html')).href, { waitUntil: 'networkidle0' });
   await page.evaluate(async () => { await document.fonts.ready; window.__capture = true; document.body.classList.add('norulers'); });
 
   let worstTop = 9999, worstBot = 0, violations = [];

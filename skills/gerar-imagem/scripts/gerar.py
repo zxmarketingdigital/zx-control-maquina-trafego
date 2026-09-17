@@ -2,23 +2,29 @@
 '''Gerador de imagem com Gemini/Imagen como caminho padrao e Codex opcional.
 
 Uso:
-  python3 gerar.py --prompt '...' --output /tmp/file.png
-  python3 gerar.py --prompt '...' --output /tmp/file.png --size 1280x720
-  python3 gerar.py --prompt '...' --output /tmp/file.png --provider auto --json
+  python3 gerar.py --prompt '...' --output arte.png
+  python3 gerar.py --prompt '...' --output arte.png --size 1280x720
+  python3 gerar.py --prompt '...' --output arte.png --provider auto --json
 '''
 
 import argparse
 import base64
-import fcntl
 import glob
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
+
+if os.name == 'nt':
+    import msvcrt
+else:
+    import fcntl
 
 VALID_SIZES = {
     '1024x1024', '1280x720', '720x1280', '1792x1024', '1024x1792',
@@ -29,8 +35,21 @@ GEMINI_MODEL = 'gemini-3.1-flash-image-preview'
 IMAGEN_MODEL = 'imagen-4.0-ultra-generate-001'
 CODEX_GEN_DIR = os.path.expanduser('~/.codex/generated_images')
 ENV_DIR = os.path.expanduser('~/.operacao-ia/config')
-GERAR_LOCK = '/tmp/gerar-imagem-codex.lock'
+GERAR_LOCK = os.path.join(tempfile.gettempdir(), 'gerar-imagem-codex.lock')
 _SECRETS = set()
+
+
+def _image2_timeout():
+    '''Teto (s) da chamada ao Codex; ZX_IMAGE2_TIMEOUT invalido ou <= 0 cai no default.'''
+    raw = os.environ.get('ZX_IMAGE2_TIMEOUT')
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return 600
+    return value if value > 0 else 600
+
+
+IMAGE2_TIMEOUT = _image2_timeout()
 
 # Reforco anti-distorcao anexado a TODO prompt (image2, gemini, imagen). O gpt-image-2 tende a
 # esticar/alargar pessoas, rostos, mockups e texto pra preencher a largura do formato — recorrente
@@ -196,8 +215,13 @@ def resize_png(path, target_size):
     try:
         from PIL import Image
     except ImportError:
-        _resize_sips_padfit(path, target_width, target_height)
-        return
+        if platform.system() == 'Darwin' and shutil.which('sips'):
+            _resize_sips_padfit(path, target_width, target_height)
+            return
+        raise RuntimeError(
+            'Pillow nao instalado e nao ha fallback via sips (so existe no macOS). '
+            'Instale com: python -m pip install Pillow'
+        )
 
     with Image.open(path) as source:
         has_alpha = 'A' in source.getbands() or 'transparency' in source.info
@@ -242,22 +266,37 @@ def codex_lock():
     '''Serializa a captura dos PNGs produzidos por chamadas concorrentes.'''
     descriptor = os.open(GERAR_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if os.name == 'nt':
+            # LK_LOCK desiste depois de ~10s; o flock do Unix espera. Repetir ate conseguir.
+            while True:
+                try:
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    time.sleep(1)
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
     finally:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            if os.name == 'nt':
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:
             os.close(descriptor)
 
 
 def codex_logged_in():
     '''Retorna True somente quando o status do Codex confirma uma sessao.'''
-    if shutil.which('codex') is None:
+    codex_bin = shutil.which('codex')
+    if codex_bin is None:
         return False
     try:
         status = subprocess.run(
-            ['codex', 'login', 'status'],
+            [codex_bin, 'login', 'status'],
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
@@ -271,7 +310,8 @@ def codex_logged_in():
 
 def gen_image2(prompt, output, size, quality, json_mode):
     '''Gera via Codex CLI e tool nativa image_gen (gpt-image-2).'''
-    if shutil.which('codex') is None:
+    codex_bin = shutil.which('codex')
+    if codex_bin is None:
         raise RuntimeError('codex CLI nao instalado')
     if not codex_logged_in():
         raise RuntimeError('codex nao esta logado')
@@ -299,16 +339,19 @@ def gen_image2(prompt, output, size, quality, json_mode):
             }
         before_pngs = set(_codex_pngs(CODEX_GEN_DIR, recursive=True))
         log('[image2] chamando codex exec...', json_mode)
+        started = time.time()
         try:
             process = subprocess.run(
-                ['codex', 'exec', '--skip-git-repo-check', '-c', 'mcp_servers={}', instructions],
+                [codex_bin, 'exec', '--skip-git-repo-check', '-c', 'mcp_servers={}', '-'],
                 capture_output=True,
                 text=True,
-                stdin=subprocess.DEVNULL,
-                timeout=240,
+                input=instructions,
+                timeout=IMAGE2_TIMEOUT,
             )
         except subprocess.SubprocessError as error:
             raise RuntimeError(f'codex exec falhou: {_redact(error)}')
+        elapsed = round(time.time() - started, 1)
+        log(f'[gerar] image2 levou {elapsed}s (teto {IMAGE2_TIMEOUT}s)', json_mode)
 
         if process.returncode != 0:
             tail = _redact((process.stderr or '')[-400:])

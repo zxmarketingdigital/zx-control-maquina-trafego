@@ -1,0 +1,37 @@
+name: multiplataforma
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  testes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check estático (sem dependência exclusiva do macOS)
+        run: python setup/check_multiplataforma.py
+      - name: Testes
+        run: python -m unittest discover -s tests -v
+      - name: Sintaxe dos scripts Node
+        shell: bash
+        run: |
+          set -e
+          for f in $(git ls-files '*.js' '*.mjs'); do node --check "$f"; done
+      - name: Compilar todos os .py
+        run: python -m compileall -q setup skills blog tests
+      - name: Agendador real (Windows)
+        if: runner.os == 'Windows'
+        run: python tests/ci_agendador_real.py

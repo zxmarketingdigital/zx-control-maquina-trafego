@@ -95,14 +95,47 @@ window.SET_TIME(0);
 ### 3. Criar `render.mjs`
 
 ```js
-import puppeteer from 'puppeteer-core';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { createRequire } from 'module';
+import { spawnSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const HTML = 'file://' + path.join(__dirname, 'scene.html');
+
+// puppeteer-core: usa o diretório compartilhado do setup quando existir; senão, o do projeto.
+async function loadPuppeteer() {
+  const shared = path.join(os.homedir(), '.operacao-ia', 'tools', 'puppeteer', 'package.json');
+  if (fs.existsSync(shared)) {
+    const entry = createRequire(shared).resolve('puppeteer-core');
+    return (await import(pathToFileURL(entry).href)).default;
+  }
+  return (await import('puppeteer-core')).default;
+}
+
+// Chrome por sistema: CHROME_PATH > macOS > Windows > Linux.
+function resolveChrome() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  if (process.platform === 'darwin') return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (process.platform === 'win32') {
+    const bases = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].filter(Boolean);
+    for (const base of bases) {
+      const exe = path.win32.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe');
+      if (fs.existsSync(exe)) return exe;
+    }
+  } else {
+    for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
+      const r = spawnSync('which', [name], { encoding: 'utf8' });
+      if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
+    }
+  }
+  throw new Error('Chrome não encontrado. Instale o Google Chrome ou defina CHROME_PATH.');
+}
+
+const puppeteer = await loadPuppeteer();
+const CHROME = resolveChrome();
+const HTML = pathToFileURL(path.join(__dirname, 'scene.html')).href;
 const FRAMES_DIR = path.join(__dirname, 'frames');
 const FPS = 30;
 const DURATION = 10.0;
@@ -143,16 +176,13 @@ Ajustar `W`, `H` e `DURATION` para o destino escolhido, mantendo os mesmos valor
 
 ### 4. Instalar puppeteer-core uma vez
 
-Usar o diretório compartilhado instalado pelo setup, quando existir:
+O `render.mjs` já usa o diretório compartilhado `~/.operacao-ia/tools/puppeteer/` quando ele existe
+(sem link simbólico, então funciona igual no Windows, macOS e Linux). Se ele não existir, instalar
+no próprio projeto:
 
 ```bash
-ln -sf ~/.operacao-ia/tools/puppeteer/node_modules "$PROJ/node_modules"
-```
-
-Se `~/.operacao-ia/tools/puppeteer/` não existir, usar um diretório local já configurado ou instalar como último recurso:
-
-```bash
-cd "$PROJ" && bun add puppeteer-core
+cd "$PROJ"
+npm install --no-save puppeteer-core
 ```
 
 Confirmar que o módulo está resolvendo antes de renderizar.
@@ -160,10 +190,11 @@ Confirmar que o módulo está resolvendo antes de renderizar.
 ### 5. Renderizar frames
 
 ```bash
-cd "$PROJ" && bun render.mjs
+cd "$PROJ"
+node render.mjs
 ```
 
-Timings aproximados em máquinas Apple M-series:
+Timings aproximados (medidos em Apple M-series; varia conforme a máquina):
 
 - 1080×1350 · 10s @ 30fps (300 frames): ~42s;
 - 1080×1350 · 12s @ 30fps (360 frames): ~52s;
@@ -174,8 +205,7 @@ Timings aproximados em máquinas Apple M-series:
 Usar o ffmpeg encontrado no sistema, sem assumir uma versão específica:
 
 ```bash
-FFMPEG="$(command -v ffmpeg)"
-"$FFMPEG" -y -framerate 30 -i frames/f%04d.png \
+ffmpeg -y -framerate 30 -i frames/f%04d.png \
   -c:v libx264 -pix_fmt yuv420p \
   -crf 17 -preset slow \
   -movflags +faststart \
@@ -188,12 +218,11 @@ FFMPEG="$(command -v ffmpeg)"
 - 18 = padrão recomendado;
 - 23 = qualidade média e arquivo menor.
 
-### 7. Validar e abrir
+### 7. Validar
 
 ```bash
 ls -lh out/video.mp4
 safezone out/video.mp4 --modo stories   # gate de safe-zone — exit 0 = ok · exit 1 = violação
-open out/video.mp4  # abre o player padrão no macOS
 ```
 
 O `--modo` acompanha o **destino** do vídeo, não apenas a resolução:
@@ -248,6 +277,6 @@ Se o vídeo for um hero para uma landing page local, criar um link no diretório
 ## Tools e paths
 
 - `ffmpeg`: usar `command -v ffmpeg`, sem hardcode de versão do brew.
-- Chrome: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`; se não existir, localizar o executável instalado ou informar o erro.
+- Chrome: resolvido por `resolveChrome()` (`CHROME_PATH`; macOS em `/Applications`; Windows em `%ProgramFiles%`, `%ProgramFiles(x86)%` ou `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`; Linux via `google-chrome`/`chromium` no PATH). Se nada for achado, informar o erro e pedir `CHROME_PATH`.
 - `puppeteer-core`: preferir `~/.operacao-ia/tools/puppeteer/node_modules`.
 - Design system: usar `DESIGN.md` local do projeto; na ausência, seguir o briefing e uma composição visual consistente.

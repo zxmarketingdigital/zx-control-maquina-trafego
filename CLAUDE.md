@@ -18,7 +18,7 @@
 >
 > Não vou executar nada até você autorizar o início. Quando estiver pronto, digite: **INICIAR SETUP 15**"
 >
-> **Somente depois de o aluno digitar INICIAR SETUP 15:** execute `python3 setup/setup_base_s15.py` e prossiga com a Etapa 0.
+> **Somente depois de o aluno digitar INICIAR SETUP 15:** execute `python3 setup/setup_base_s15.py` (no Windows: `py -3 setup/setup_base_s15.py`) e prossiga com a Etapa 0.
 
 # Máquina de Tráfego com Claude Code
 
@@ -36,6 +36,11 @@ Você é o instrutor e executor deste setup. O aluno não precisa abrir o termin
 6. **Mostre a barra de progresso** — no início de cada etapa use exatamente o formato `[███░░░░░░░] Etapa N de 8`, ajustando os blocos ao número da etapa.
 7. **Custo de entrada zero** — nunca transforme uma conta paga, upgrade ou gasto com mídia em requisito de instalação. A chave gratuita do Gemini é a única credencial obrigatória.
 8. **Proteja segredos** — nunca mostre token, API key, cookie, ID sensível ou segredo completo. Em qualquer saída, mascare como `primeiros caracteres…últimos 4`; nunca repita o valor integral.
+9. **Funciona em Windows, macOS e Linux** — este setup é o *Setup 15 — Máquina de Tráfego com Claude Code* (repositório `zx-control-maquina-trafego`); não confunda com o produto *Tráfego Pago Automatizado (TPA)*. Nunca diga ao aluno que ele precisa de Mac, WSL ou Modo de Desenvolvedor.
+   - **Comando do Python:** onde este arquivo diz `python3`, use `py -3` no Windows (o `python3` do Windows costuma ser só o atalho da Microsoft Store). Confira com `py -3 --version`; se não existir, tente `python --version`. No macOS e no Linux, use `python3`.
+   - **Terminal no Windows:** o Claude Code usa o Git Bash quando o Git for Windows está instalado e o PowerShell quando não está. Em PowerShell, não encadeie comandos com `&&` (o Windows PowerShell 5 não aceita): rode um por vez.
+   - **Agendamento diário:** no macOS usa o launchd, no Windows o Agendador de Tarefas (tarefa `ZXSetup15BlogDaily`) e no Linux o crontab. Os scripts escolhem sozinhos.
+   - **Dependências no Windows:** se faltar algo, instale com `winget` (`Git.Git`, `Python.Python.3.12`, `OpenJS.NodeJS.LTS`, `Gyan.FFmpeg`, `Google.Chrome`) e peça ao aluno para fechar e abrir o Claude Code de novo, para o PATH ser recarregado.
 
 O estado da instalação fica em `~/.operacao-ia/`. O checkpoint das etapas fica em `~/.operacao-ia/config/setup15_progress.json`. Não substitua um progresso já concluído por um estado anterior e não apague configurações existentes sem autorização explícita.
 
@@ -438,7 +443,7 @@ Esse script já verifica todos os componentes E fecha o Setup (marca `phase_comp
 - `phase_completed` atualizado para 15 sem retroceder valores existentes.
 - Nenhum token, chave, ID sensível ou caminho privado exposto.
 
-Depois de `setup_final_s15.py`, mostre um resumo objetivo: o que está ativo, o que ficou opcional, o que foi pulado e como o aluno pode retornar a uma etapa. Não diga que uma integração opcional está conectada se ela não foi validada.
+Depois do fechamento pelo `setup_audit.py`, mostre um resumo objetivo: o que está ativo, o que ficou opcional, o que foi pulado e como o aluno pode retornar a uma etapa. Não diga que uma integração opcional está conectada se ela não foi validada.
 
 ---
 

@@ -7,17 +7,23 @@ pelo Claude através do MCP Pipedream e mantém o ledger da operação.
 
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
+import os
 import re
 import sys
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 CONFIG_DIR = Path.home() / ".operacao-ia" / "config"
@@ -204,16 +210,32 @@ def _ledger_lock():
     A escrita atômica sozinha evita arquivo pela metade, mas não evita perda:
     dois processos que leem a mesma lista e gravam em seguida deixam só a
     última entrada. O lock fecha a janela inteira, não só o replace.
+
+    Multiplataforma: no Unix usa fcntl.flock e no Windows msvcrt.locking.
     """
     ledger_path = Path(LEDGER_PATH)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = ledger_path.with_name(f"{ledger_path.name}.lock")
     with open(lock_path, "w", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        if os.name == "nt":
+            # LK_LOCK desiste depois de ~10s; o flock do Unix espera. Repetir ate conseguir.
+            while True:
+                try:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    time.sleep(1)
+        else:
+            fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _write_ledger(entries):

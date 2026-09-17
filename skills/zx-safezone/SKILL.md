@@ -33,6 +33,9 @@ python3 scripts/zx-safezone.py <video>.mp4 --modo stories  # amostra frames ao l
 python3 scripts/zx-safezone.py *.png --json
 ```
 
+No Windows, troque `python3` por `py -3`. O caminho `scripts/` é relativo à pasta desta skill
+(`~/.claude/skills/zx-safezone/`); vídeo exige `ffmpeg` e `ffprobe` no PATH.
+
 Exit codes: `0` = aprovado · `1` = violação (não subir, regenerar) · `2` = erro de uso/arquivo.
 
 ## Estratégia recomendada

@@ -44,11 +44,11 @@ Transições: Hook→Counter (slide de baixo), Counter→Offer (wipe), Offer→C
 2. **Editar SÓ `src/content.ts`** — hook (4 linhas), contador (label/target/barras), oferta (pre/preço âncora/preço final/chips), CTA (headline/botão/hint). **NUNCA inventar bullets ou preço** — puxar da LP / `CLAUDE.md` do produto. Se não achar, perguntar ao Rafael.
 3. **Preview no Studio** (opcional, recomendado):
    ```bash
-   ./node_modules/.bin/remotion studio   # localhost:3000 — scrub na timeline pra ver o movimento
+   npx remotion studio   # localhost:3000 — scrub na timeline pra ver o movimento
    ```
 4. **Renderizar:**
    ```bash
-   PATH="/opt/homebrew/bin:$PATH" ./node_modules/.bin/remotion render Momentum out/momentum.mp4
+   npx remotion render Momentum out/momentum.mp4
    ```
 5. **QA de safe-zone — gate programático, não 1 frame no olho:**
    ```bash
@@ -65,9 +65,9 @@ Pra testar ângulos: duplicar a pasta com `content.ts` diferente (muda hook/head
 ## Gotchas (aprendidos na construção — NÃO repetir)
 
 - **TypeScript tem que ser 5.x.** O TS 7.x (compilador nativo novo) quebra o bundler do Remotion (`ts.sys` undefined). O `package.json` já pina `typescript@^5.9` — se `npm install` puxar 7, rodar `npm i -D typescript@5`.
-- **Nunca criar 2 arquivos com nome que só difere no case** (ex: `Captions.tsx` × `captions.ts`). O filesystem do macOS é case-insensitive → os dois resolvem pro mesmo arquivo e o import vira `undefined` (React error #130). Por isso o helper é `Segments.tsx`, dados em `content.ts`.
-- **`npx` é reescrito pelo hook RTK** ("Missing script") → sempre chamar `./node_modules/.bin/remotion`.
-- **ffmpeg/ffprobe:** usar `/opt/homebrew/bin` direto (RTK às vezes engole a saída).
+- **Nunca criar 2 arquivos com nome que só difere no case** (ex: `Captions.tsx` × `captions.ts`). O filesystem padrão do macOS e do Windows é case-insensitive → os dois resolvem pro mesmo arquivo e o import vira `undefined` (React error #130). Por isso o helper é `Segments.tsx`, dados em `content.ts`.
+- **Chamar o Remotion via `npx remotion ...`** (usa a versão instalada no projeto e funciona no Windows, macOS e Linux). Se algum hook do seu terminal reescrever o `npx`, usar `node node_modules/@remotion/cli/remotion-cli.js ...`.
+- **ffmpeg/ffprobe:** precisam estar no PATH (`ffmpeg -version`). No Windows: `winget install Gyan.FFmpeg` e reabrir o terminal.
 - **Fontes:** já carregadas via `@remotion/google-fonts` (Inter + JetBrains Mono) — garante `fonts.ready` no render headless, não precisa `<link>`.
 - **Confete é determinístico** (PRNG por índice em `util.ts`) — estável entre frames; não usar `Math.random` por partícula.
 
