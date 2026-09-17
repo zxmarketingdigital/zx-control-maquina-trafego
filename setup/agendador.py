@@ -99,6 +99,27 @@ def _parse_hora(hora):
 
 # ---------------------------------------------------------------- macOS
 
+def _gravar_atomico(path, conteudo):
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(conteudo)
+    os.replace(str(tmp), str(path))
+
+
+def _restaurar_plist(target, anterior):
+    """Volta ao plist anterior depois de uma instalação frustrada. Sem plist anterior,
+    remove o novo para não deixar um agendamento que ninguém carregou."""
+    try:
+        if anterior is None:
+            if target.exists():
+                target.unlink()
+            return False
+        _gravar_atomico(target, anterior)
+    except OSError:
+        return False
+    carga = _run(["launchctl", "load", str(target)])
+    return carga is not None and carga.returncode == 0
+
+
 def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
     if not PLIST_TEMPLATE.is_file():
         return _result(False, "Darwin", f"Template não encontrado: {PLIST_TEMPLATE}")
@@ -127,7 +148,18 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
         "<string>/usr/local/bin:", "<string>" + xml_escape(node_dir) + ":/usr/local/bin:", 1
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
+    anterior = target.read_bytes() if target.exists() else None
+    # Gravar antes de descarregar: se a escrita falhar (permissão, disco cheio), o
+    # agendamento que já funcionava continua carregado.
+    try:
+        _gravar_atomico(target, plist.encode("utf-8"))
+    except OSError as exc:
+        return _result(
+            False,
+            "Darwin",
+            f"Não foi possível gravar {target}: {exc}. O agendamento anterior segue ativo.",
+        )
+    if anterior is not None:
         _run(["launchctl", "unload", str(target)])
     # O job antigo pode seguir carregado mesmo sem plist; o load não o substituiria.
     carregado = _job_carregado()
@@ -135,19 +167,22 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
         _run(["launchctl", "remove", LABEL])
         carregado = _job_carregado()
     if carregado is None or carregado:
+        _restaurar_plist(target, anterior)
         return _result(
             False,
             "Darwin",
             f"O job antigo {LABEL} não saiu do launchctl; nada foi reinstalado. "
             f"Rode: launchctl remove {LABEL} e instale de novo.",
         )
-    target.write_text(plist, encoding="utf-8")
     carga = _run(["launchctl", "load", str(target)])
     if carga is None or carga.returncode != 0:
+        recuperado = _restaurar_plist(target, anterior)
+        extra = " O plist anterior foi restaurado e recarregado." if recuperado else ""
         return _result(
             False,
             "Darwin",
-            f"LaunchAgent gravado em {target}, mas o launchctl load falhou: {_output(carga)}",
+            f"LaunchAgent gravado em {target}, mas o launchctl load falhou: {_output(carga)}."
+            + extra,
         )
     listed = _run(["launchctl", "list"])
     matches = [line for line in _output(listed).splitlines() if _label_carregado(line)]
@@ -212,12 +247,6 @@ def _status_darwin(home):
 
 
 # ---------------------------------------------------------------- Windows
-
-def _gravar_atomico(path, conteudo):
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(conteudo)
-    os.replace(str(tmp), str(path))
-
 
 def _cmd_quote(value):
     # Dentro de um .cmd, % precisa ser dobrado para não virar variável.
@@ -380,8 +409,14 @@ def _linha_nossa(line):
     return texto == CRON_MARKER or texto.endswith(" " + CRON_MARKER)
 
 
+def _linhas_cron(texto):
+    # split("\n"), nunca splitlines(): o crontab separa registros só por LF, e
+    # splitlines() também quebraria dentro de um caminho com U+2028, \x0b ou \x0c.
+    return texto.split("\n")
+
+
 def _sem_marcador(texto):
-    return [line for line in texto.splitlines() if not _linha_nossa(line)]
+    return [line for line in _linhas_cron(texto) if not _linha_nossa(line)]
 
 
 def _gravar_crontab(linhas):
@@ -430,7 +465,7 @@ def _remover_linux():
             "Não foi possível ler o crontab (comando ausente no PATH ou erro de leitura); "
             "confira com 'crontab -l' e apague a linha que termina em " + CRON_MARKER + ".",
         )
-    if not any(_linha_nossa(line) for line in atual.splitlines()):
+    if not any(_linha_nossa(line) for line in _linhas_cron(atual)):
         return _result(True, "Linux", "Agendamento blog-daily: já removido")
     ok, saida = _gravar_crontab(_sem_marcador(atual))
     if not ok:
@@ -440,7 +475,7 @@ def _remover_linux():
 
 def _status_linux():
     atual = _crontab_atual()
-    existe = bool(atual) and any(_linha_nossa(line) for line in atual.splitlines())
+    existe = bool(atual) and any(_linha_nossa(line) for line in _linhas_cron(atual))
     return _result(existe, "Linux", "linha presente no crontab" if existe else "sem linha no crontab")
 
 

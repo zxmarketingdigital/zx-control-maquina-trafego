@@ -522,6 +522,103 @@ class AgendadorWindowsCondicoesTest(unittest.TestCase):
         self.assertTrue(agendador.wrapper_path(self.home).exists())
 
 
+class AgendadorRollbackTest(unittest.TestCase):
+    """Uma instalação frustrada não pode derrubar o agendamento que já funcionava."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.plist = agendador.plist_path(self.home)
+        self.plist.parent.mkdir(parents=True, exist_ok=True)
+        self.plist.write_bytes(b"<plist>anterior</plist>")
+        self.carregado = True
+        self.load_rc = 0
+        self.chamadas = []
+
+        def fake_run(args, input_text=None):
+            self.chamadas.append(args[:2])
+            if args[:2] == ["launchctl", "remove"]:
+                self.carregado = False
+            elif args[:2] == ["launchctl", "load"]:
+                if self.load_rc == 0:
+                    self.carregado = True
+                return _proc(args, returncode=self.load_rc, stderr="Load failed")
+            elif args[:2] == ["launchctl", "list"]:
+                return _proc(args, stdout="-\t0\t%s\n" % agendador.LABEL if self.carregado else "")
+            return _proc(args)
+
+        self.patch = mock.patch.object(agendador, "_run", side_effect=fake_run)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.tmp.cleanup()
+
+    def _instalar(self):
+        return agendador.instalar(blog_dir=self.home / "blog", node_bin="/usr/local/bin/node",
+                                  sistema="Darwin", home=self.home)
+
+    def test_plist_ilegivel_nao_descarrega_job_antigo(self):
+        with mock.patch.object(agendador, "_gravar_atomico",
+                               side_effect=PermissionError("somente leitura")):
+            r = self._instalar()
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(self.plist.read_bytes(), b"<plist>anterior</plist>")
+        self.assertNotIn(["launchctl", "unload"], self.chamadas)
+        self.assertNotIn(["launchctl", "remove"], self.chamadas)
+        self.assertTrue(self.carregado)
+
+    def test_load_falho_restaura_e_recarrega_o_plist_anterior(self):
+        self.load_rc = 1
+        r = self._instalar()
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(self.plist.read_bytes(), b"<plist>anterior</plist>")
+        self.assertEqual(self.chamadas.count(["launchctl", "load"]), 2)
+
+
+class AgendadorCronSeparadorTest(unittest.TestCase):
+    """O crontab separa registros só por LF: U+2028 num caminho não pode virar linha nova."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.blog = Path(self.tmp.name) / "blog\u2028novo"
+        self.crontab = "0 5 * * * /usr/bin/backup.sh\n"
+
+        def fake_run(args, input_text=None):
+            if args[:2] == ["crontab", "-l"]:
+                return _proc(args, stdout=self.crontab)
+            if args[:1] == ["crontab"]:
+                self.crontab = input_text
+                return _proc(args)
+            return _proc(args)
+
+        self.patch_run = mock.patch.object(agendador, "_run", side_effect=fake_run)
+        self.patch_run.start()
+        self.patch_which = mock.patch.object(agendador.shutil, "which",
+                                             side_effect=lambda nome: "/usr/bin/" + nome)
+        self.patch_which.start()
+
+    def tearDown(self):
+        self.patch_which.stop()
+        self.patch_run.stop()
+        self.tmp.cleanup()
+
+    def test_instalar_remover_nao_deixa_fragmento(self):
+        r = agendador.instalar(blog_dir=self.blog, node_bin="/usr/bin/node", sistema="Linux")
+        self.assertTrue(r["ok"], r)
+        nossas = [l for l in self.crontab.split("\n") if agendador.CRON_MARKER in l]
+        self.assertEqual(len(nossas), 1, self.crontab)
+
+        r = agendador.instalar(blog_dir=self.blog, node_bin="/usr/bin/node", sistema="Linux")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(len([l for l in self.crontab.split("\n") if agendador.CRON_MARKER in l]), 1)
+
+        r = agendador.remover(sistema="Linux")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.crontab, "0 5 * * * /usr/bin/backup.sh\n")
+        self.assertNotIn("daily_publish", self.crontab)
+
+
 class AgendadorSemSuporteTest(unittest.TestCase):
     def test_sistema_desconhecido_nao_lanca(self):
         with tempfile.TemporaryDirectory() as tmp:
