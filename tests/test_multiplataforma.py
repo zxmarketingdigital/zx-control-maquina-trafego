@@ -74,14 +74,14 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertTrue((self.blog / "logs").is_dir())
 
     def test_remover_apaga_tarefa_e_wrapper(self):
-        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
         r = agendador.remover(sistema="Windows", home=self.home)
         self.assertTrue(r["ok"], r)
         self.assertFalse(agendador.wrapper_path(self.home).exists())
         self.assertEqual(self.chamadas[-1][:2], ["schtasks", "/Delete"])
 
     def test_delete_negado_preserva_wrapper(self):
-        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
         self.patch.stop()
 
         def fake_run(args, input_text=None):
@@ -94,14 +94,14 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertTrue(agendador.wrapper_path(self.home).exists())
 
     def test_wrapper_usa_pushd_e_propaga_codigo(self):
-        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
         conteudo = agendador.wrapper_path(self.home).read_text(encoding="utf-8")
         self.assertIn('pushd "' + str(self.blog).replace("%", "%%") + '" || exit /b 1', conteudo)
         self.assertNotIn("cd /d", conteudo)
         self.assertTrue(conteudo.rstrip().endswith("exit /b %RC%"))
 
     def _remover_com_query_negada(self, lista_stdout):
-        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
         self.patch.stop()
         chamadas = []
 
@@ -147,7 +147,7 @@ class AgendadorWindowsTest(unittest.TestCase):
     def test_schtasks_ausente_retorna_erro_sem_lancar(self):
         self.patch.stop()
         with mock.patch.object(agendador, "_run", return_value=None):
-            r = agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+            r = agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
         self.patch.start()
         self.assertFalse(r["ok"])
 
@@ -367,6 +367,14 @@ class AgendadorDarwinInstalarTest(unittest.TestCase):
         self.patch.stop()
         self.tmp.cleanup()
 
+    def test_plist_nao_reprocessa_marcador_no_caminho(self):
+        blog = self.home / "curso-{HOME}" / "blog"
+        r = agendador.instalar(blog_dir=blog, node_bin="/usr/local/bin/node",
+                               sistema="Darwin", home=self.home)
+        self.assertTrue(r["ok"], r)
+        plist = agendador.plist_path(self.home).read_text(encoding="utf-8")
+        self.assertIn("curso-{HOME}", plist)
+
     def _instalar(self):
         return agendador.instalar(hora="10:00", blog_dir=self.blog, node_bin="/usr/bin/node",
                                   sistema="Darwin", home=self.home)
@@ -387,6 +395,74 @@ class AgendadorDarwinInstalarTest(unittest.TestCase):
         self.load_rc = 1
         r = self._instalar()
         self.assertFalse(r["ok"], r)
+
+
+class AgendadorProtecoesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_run_preserva_bytes_que_nao_decodificam(self):
+        legado = b"# manuten\xe7\xe3o \x81\x8d\n"
+        eco = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
+        lido = agendador._run([sys.executable, "-c",
+                               "import sys; sys.stdout.buffer.write(%r)" % legado])
+        self.assertIsNotNone(lido)
+        self.assertEqual(lido.returncode, 0)
+        devolvido = agendador._run([sys.executable, "-c", eco], input_text=lido.stdout)
+        self.assertEqual(devolvido.stdout, lido.stdout)
+        import locale
+        enc = locale.getpreferredencoding(False)
+        self.assertEqual(devolvido.stdout.encode(enc, "surrogateescape"), legado)
+
+    def test_status_com_erro_de_disco_devolve_dict(self):
+        with mock.patch.object(agendador, "_status_darwin", side_effect=PermissionError("negado")):
+            r = agendador.status(sistema="Darwin", home=self.base)
+        self.assertFalse(r["ok"])
+        self.assertIn("negado", r["detalhe"])
+
+    def test_node_relativo_vira_absoluto(self):
+        cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        try:
+            resolvido = agendador._resolver_node("./runtime/node")
+            esperado = os.path.join(os.getcwd(), "runtime", "node")
+        finally:
+            os.chdir(cwd)
+        self.assertTrue(os.path.isabs(resolvido))
+        self.assertEqual(resolvido, esperado)
+        self.assertEqual(agendador._resolver_node(r"C:\nodejs\node.exe"), r"C:\nodejs\node.exe")
+        with mock.patch.object(agendador.shutil, "which", return_value=None):
+            r = agendador.instalar(blog_dir=self.base / "blog", node_bin="node", sistema="Linux")
+        self.assertFalse(r["ok"], r)
+
+    def test_windows_home_com_percentual_recusa_sem_tocar_em_nada(self):
+        home = self.base / "%USERNAME%"
+        with mock.patch.object(agendador, "_run", side_effect=AssertionError("não devia chamar")):
+            r = agendador.instalar(blog_dir=self.base / "blog", node_bin=r"C:\nodejs\node.exe",
+                                   sistema="Windows", home=home)
+        self.assertFalse(r["ok"], r)
+        self.assertFalse(agendador.wrapper_path(home).exists())
+
+    def test_windows_create_falho_restaura_wrapper_anterior(self):
+        home = self.base / "home"
+        wrapper = agendador.wrapper_path(home)
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_bytes(b"wrapper antigo")
+        falha = lambda a, input_text=None: _proc(a, returncode=1, stderr="Servico parado")
+        with mock.patch.object(agendador, "_run", side_effect=falha):
+            r = agendador.instalar(blog_dir=self.base / "blog B", node_bin=r"C:\nodejs\node.exe",
+                                   sistema="Windows", home=home)
+        self.assertFalse(r["ok"], r)
+        self.assertEqual(wrapper.read_bytes(), b"wrapper antigo")
+        wrapper.unlink()
+        with mock.patch.object(agendador, "_run", side_effect=falha):
+            agendador.instalar(blog_dir=self.base / "blog B", node_bin=r"C:\nodejs\node.exe",
+                               sistema="Windows", home=home)
+        self.assertFalse(wrapper.exists())
 
 
 class AgendadorSemSuporteTest(unittest.TestCase):

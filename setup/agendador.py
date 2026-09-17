@@ -16,7 +16,7 @@ import re
 import shlex
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
@@ -71,6 +71,9 @@ def _run(args, input_text=None):
             input=input_text,
             capture_output=True,
             text=True,
+            # schtasks sai na página de códigos do console e o crontab pode ter bytes
+            # legados: surrogateescape não lança e devolve os mesmos bytes na regravação.
+            errors="surrogateescape",
             timeout=CMD_TIMEOUT,
             check=False,
         )
@@ -102,10 +105,18 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
     target = plist_path(home)
     node_dir = str(Path(node_bin).parent)
     plist = PLIST_TEMPLATE.read_text(encoding="utf-8")
-    plist = plist.replace("{BLOG_DIR}", xml_escape(str(blog_dir)))
-    plist = plist.replace("{HOME}", xml_escape(str(_home(home))))
-    plist = plist.replace("{NODE_BIN}", xml_escape(node_bin))
-    plist = plist.replace("{NODE}", xml_escape(node_bin))
+    valores = {
+        "BLOG_DIR": str(blog_dir),
+        "HOME": str(_home(home)),
+        "NODE_BIN": node_bin,
+        "NODE": node_bin,
+    }
+    # Uma passada só: um caminho que contenha "{HOME}" não é reprocessado.
+    plist = re.sub(
+        r"\{(BLOG_DIR|HOME|NODE_BIN|NODE)\}",
+        lambda m: xml_escape(valores[m.group(1)]),
+        plist,
+    )
     plist = re.sub(
         r"(<key>Hour</key>\s*<integer>)\d+(</integer>)", r"\g<1>%d\g<2>" % hh, plist
     )
@@ -202,6 +213,12 @@ def _status_darwin(home):
 
 # ---------------------------------------------------------------- Windows
 
+def _gravar_atomico(path, conteudo):
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(conteudo)
+    os.replace(str(tmp), str(path))
+
+
 def _cmd_quote(value):
     # Dentro de um .cmd, % precisa ser dobrado para não virar variável.
     return '"' + str(value).replace("%", "%%") + '"'
@@ -209,6 +226,14 @@ def _cmd_quote(value):
 
 def _instalar_windows(blog_dir, node_bin, hh, mm, home):
     wrapper = wrapper_path(home)
+    if "%" in str(wrapper):
+        # O Agendador expande %VAR% no caminho da ação; o wrapper não seria encontrado.
+        return _result(
+            False,
+            "Windows",
+            f"A pasta do usuário ({_home(home)}) contém '%', que o Agendador de Tarefas "
+            "interpreta como variável. Nada foi alterado.",
+        )
     wrapper.parent.mkdir(parents=True, exist_ok=True)
     blog = Path(blog_dir)
     linhas = [
@@ -225,15 +250,21 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
         "exit /b %RC%",
         "",
     ]
-    wrapper.write_text("\r\n".join(linhas), encoding="utf-8")
+    anterior = wrapper.read_bytes() if wrapper.exists() else None
+    _gravar_atomico(wrapper, "\r\n".join(linhas).encode("utf-8"))
     proc = _run([
         "schtasks", "/Create", "/SC", "DAILY", "/TN", windows_task_name(),
         "/TR", '"' + str(wrapper) + '"',
         "/ST", "%02d:%02d" % (hh, mm), "/F",
     ])
-    if proc is None:
-        return _result(False, "Windows", "Não foi possível executar o schtasks.")
-    if proc.returncode != 0:
+    if proc is None or proc.returncode != 0:
+        # A tarefa antiga (se houver) continua apontando para o wrapper: devolve o conteúdo dela.
+        if anterior is None:
+            wrapper.unlink()
+        else:
+            _gravar_atomico(wrapper, anterior)
+        if proc is None:
+            return _result(False, "Windows", "Não foi possível executar o schtasks.")
         return _result(False, "Windows", "schtasks recusou a criação: " + _output(proc))
     return _result(
         True,
@@ -390,6 +421,18 @@ def _status_linux():
 
 # ---------------------------------------------------------------- API
 
+def _resolver_node(node_bin):
+    """Caminho do node que continua válido quando a tarefa roda em outro diretório."""
+    if not node_bin:
+        return shutil.which("node")
+    node = os.path.expanduser(str(node_bin))
+    if not any(sep in node for sep in ("/", "\\")):
+        return shutil.which(node)
+    if PureWindowsPath(node).is_absolute() or PurePosixPath(node).is_absolute():
+        return node
+    return os.path.abspath(node)
+
+
 def instalar(
     hora="08:00",
     blog_dir=None,
@@ -405,9 +448,15 @@ def instalar(
     hh, mm = parsed
     # Caminho absoluto: o agendador roda a partir de outro diretório.
     blog = Path(os.path.abspath(str(Path(blog_dir).expanduser()))) if blog_dir else BLOG_DIR
-    node = node_bin or shutil.which("node")
+    if so not in ("Darwin", "Windows", "Linux"):
+        return _result(
+            False,
+            so,
+            f"Sistema {so} sem agendador suportado. Rode manualmente: node blog/generator/daily_publish.js",
+        )
+    node = _resolver_node(node_bin)
     if not node:
-        return _result(False, so, "Node não foi encontrado; não foi possível agendar.")
+        return _result(False, so, f"Node não foi encontrado ({node_bin or 'node'}); não foi possível agendar.")
     try:
         (blog / "logs").mkdir(parents=True, exist_ok=True)
         if so == "Darwin":
@@ -441,12 +490,15 @@ def remover(sistema=None, home=None):
 
 def status(sistema=None, home=None):
     so = _sistema(sistema)
-    if so == "Darwin":
-        return _status_darwin(home)
-    if so == "Windows":
-        return _status_windows(home)
-    if so == "Linux":
-        return _status_linux()
+    try:
+        if so == "Darwin":
+            return _status_darwin(home)
+        if so == "Windows":
+            return _status_windows(home)
+        if so == "Linux":
+            return _status_linux()
+    except OSError as exc:
+        return _result(False, so, f"Não foi possível consultar o agendamento: {exc}")
     return _result(False, so, "Sistema sem agendador suportado")
 
 
