@@ -394,9 +394,10 @@ def gen_image2(prompt, output, size, quality, json_mode):
                     source = new_files[0]
 
             if source is None:
+                stdout_tail = _redact((process.stdout or '')[-300:])
                 raise RuntimeError(
                     'codex executou mas nao foi encontrado PNG gerado; '
-                    f'stdout tail: {_redact((process.stdout or '')[-300:])}'
+                    f'stdout tail: {stdout_tail}'
                 )
             shutil.copyfile(source, output)
 
