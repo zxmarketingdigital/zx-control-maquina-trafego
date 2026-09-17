@@ -93,6 +93,43 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertFalse(r["ok"], r)
         self.assertTrue(agendador.wrapper_path(self.home).exists())
 
+    def test_wrapper_usa_pushd_e_propaga_codigo(self):
+        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        conteudo = agendador.wrapper_path(self.home).read_text(encoding="utf-8")
+        self.assertIn('pushd "' + str(self.blog).replace("%", "%%") + '" || exit /b 1', conteudo)
+        self.assertNotIn("cd /d", conteudo)
+        self.assertTrue(conteudo.rstrip().endswith("exit /b %RC%"))
+
+    def _remover_com_query_negada(self, lista_stdout):
+        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        self.patch.stop()
+        chamadas = []
+
+        def fake_run(args, input_text=None):
+            chamadas.append(list(args))
+            if args[:3] == ["schtasks", "/Query", "/TN"]:
+                return _proc(args, returncode=1, stderr="ERRO: Acesso negado.")
+            if args[:2] == ["schtasks", "/Query"]:
+                return _proc(args, stdout=lista_stdout)
+            return _proc(args)
+
+        with mock.patch.object(agendador, "_run", side_effect=fake_run):
+            r = agendador.remover(sistema="Windows", home=self.home)
+        self.patch.start()
+        self.assertFalse(any(c[:2] == ["schtasks", "/Delete"] for c in chamadas))
+        return r
+
+    def test_query_negada_com_tarefa_na_lista_preserva_wrapper(self):
+        nome = agendador.windows_task_name()
+        r = self._remover_com_query_negada('"\\%s","N/A","Pronto"\r\n' % nome)
+        self.assertFalse(r["ok"], r)
+        self.assertTrue(agendador.wrapper_path(self.home).exists())
+
+    def test_query_falha_e_tarefa_fora_da_lista_e_ausencia(self):
+        r = self._remover_com_query_negada('"\\OutraTarefa","N/A","Pronto"\r\n')
+        self.assertTrue(r["ok"], r)
+        self.assertFalse(agendador.wrapper_path(self.home).exists())
+
     def test_nome_da_tarefa_e_por_usuario(self):
         a = agendador.windows_task_name("Ana")
         b = agendador.windows_task_name("Bruno")
@@ -191,6 +228,58 @@ class CrontabAtualTest(unittest.TestCase):
     def test_erro_generico_aborta_sem_virar_vazio(self):
         with self._com_run(1, stderr="crontab: spool ilegível\n"):
             self.assertIsNone(agendador._crontab_atual())
+
+    def test_remover_com_crontab_ilegivel_nao_finge_sucesso(self):
+        with self._com_run(1, stderr="crontab: spool ilegível\n"):
+            r = agendador.remover(sistema="Linux")
+        self.assertFalse(r["ok"], r)
+
+
+class AgendadorDarwinRemoverTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.plist = agendador.plist_path(self.home)
+        self.plist.parent.mkdir(parents=True)
+        self.plist.write_text("<plist quebrado", encoding="utf-8")
+        self.carregado = True
+        self.remove_funciona = True
+
+        def fake_run(args, input_text=None):
+            if args[:2] == ["launchctl", "unload"]:
+                return _proc(args, returncode=1, stderr="Invalid property list")
+            if args[:2] == ["launchctl", "remove"]:
+                if self.remove_funciona:
+                    self.carregado = False
+                return _proc(args, returncode=0 if self.remove_funciona else 1)
+            if args[:2] == ["launchctl", "list"]:
+                linha = "-\t0\t%s\n" % agendador.LABEL if self.carregado else ""
+                return _proc(args, stdout="-\t0\tcom.apple.x\n" + linha)
+            return _proc(args)
+
+        self.patch = mock.patch.object(agendador, "_run", side_effect=fake_run)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.tmp.cleanup()
+
+    def test_unload_falho_remove_pelo_label(self):
+        r = agendador.remover(sistema="Darwin", home=self.home)
+        self.assertTrue(r["ok"], r)
+        self.assertFalse(self.plist.exists())
+
+    def test_job_que_nao_sai_preserva_plist(self):
+        self.remove_funciona = False
+        r = agendador.remover(sistema="Darwin", home=self.home)
+        self.assertFalse(r["ok"], r)
+        self.assertTrue(self.plist.exists())
+
+    def test_plist_ausente_mas_job_carregado_e_removido(self):
+        self.plist.unlink()
+        r = agendador.remover(sistema="Darwin", home=self.home)
+        self.assertTrue(r["ok"], r)
+        self.assertFalse(self.carregado)
 
 
 class AgendadorSemSuporteTest(unittest.TestCase):

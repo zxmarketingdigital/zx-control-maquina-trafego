@@ -54,14 +54,14 @@ EXCECOES_LINHA = [
 ]
 
 
-def arquivos():
+def arquivos(incluir_liberados=False):
     for path in sorted(ROOT.rglob("*")):
         if not path.is_file() or path.suffix not in EXTENSOES:
             continue
         rel = path.relative_to(ROOT).as_posix()
         if any(part in IGNORAR_DIRS for part in path.relative_to(ROOT).parts):
             continue
-        if rel in LIBERADOS or rel.startswith("SPEC"):
+        if rel.startswith("SPEC") or (rel in LIBERADOS and not incluir_liberados):
             continue
         yield rel, path
 
@@ -90,7 +90,7 @@ def varrer():
 
 def ast_39():
     erros = []
-    for rel, path in arquivos():
+    for rel, path in arquivos(incluir_liberados=True):
         if not rel.endswith(".py"):
             continue
         try:

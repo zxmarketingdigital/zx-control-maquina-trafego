@@ -138,25 +138,42 @@ def _label_carregado(line):
     return bool(campos) and campos[-1] == LABEL
 
 
+def _job_carregado():
+    """True/False conforme o launchctl list; None se não deu para consultar."""
+    listed = _run(["launchctl", "list"])
+    if listed is None or listed.returncode != 0:
+        return None
+    return any(_label_carregado(line) for line in _output(listed).splitlines())
+
+
 def _remover_darwin(home):
     target = plist_path(home)
+    if target.exists():
+        _run(["launchctl", "unload", str(target)])
+    carregado = _job_carregado()
+    if carregado:
+        # unload depende de ler o plist; remove pelo label funciona mesmo com o arquivo quebrado.
+        _run(["launchctl", "remove", LABEL])
+        carregado = _job_carregado()
+    if carregado is None or carregado:
+        return _result(
+            False,
+            "Darwin",
+            f"Não foi possível confirmar que o job {LABEL} saiu do launchctl; "
+            f"o plist foi preservado. Rode: launchctl remove {LABEL}",
+        )
     if not target.exists():
         return _result(True, "Darwin", "LaunchAgent blog-daily: já removido")
-    unloaded = _run(["launchctl", "unload", str(target)])
-    aviso = ""
-    if unloaded is None or unloaded.returncode != 0:
-        aviso = " (unload não confirmou; o job pode já não estar carregado)"
     try:
         target.unlink()
     except OSError as exc:
         return _result(False, "Darwin", f"Não foi possível remover {target}: {exc}")
-    return _result(True, "Darwin", f"LaunchAgent blog-daily removido{aviso}")
+    return _result(True, "Darwin", "LaunchAgent blog-daily removido")
 
 
 def _status_darwin(home):
     target = plist_path(home)
-    listed = _run(["launchctl", "list"])
-    carregado = any(_label_carregado(line) for line in _output(listed).splitlines())
+    carregado = bool(_job_carregado())
     return _result(
         target.exists() and carregado,
         "Darwin",
@@ -179,10 +196,15 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
     linhas = [
         "@echo off",
         "chcp 65001 >nul",
-        "cd /d " + _cmd_quote(blog),
+        # pushd aceita caminho de rede (\\servidor\pasta), que o cd /d recusa;
+        # se a pasta não abrir, a tarefa para em vez de rodar no diretório errado.
+        "pushd " + _cmd_quote(blog) + " || exit /b 1",
         'if not exist "logs" mkdir "logs"',
         _cmd_quote(node_bin)
         + ' "generator\\daily_publish.js" >> "logs\\blog-daily.log" 2>> "logs\\blog-daily-err.log"',
+        "set RC=%ERRORLEVEL%",
+        "popd",
+        "exit /b %RC%",
         "",
     ]
     wrapper.write_text("\r\n".join(linhas), encoding="utf-8")
@@ -220,6 +242,23 @@ def _remover_windows(home):
             )
         partes.append(f"Tarefa '{nome}' removida")
     else:
+        # /Query falha tanto para "não existe" quanto para "acesso negado", e a mensagem
+        # muda com o idioma do Windows. A lista completa decide sem depender do texto.
+        lista = _run(["schtasks", "/Query", "/FO", "CSV", "/NH"])
+        if lista is None or lista.returncode != 0:
+            return _result(
+                False,
+                "Windows",
+                f"Não foi possível confirmar se a tarefa '{nome}' existe; nada foi removido. "
+                + _output(consulta),
+            )
+        if ('"\\' + nome + '"').lower() in _output(lista).lower():
+            return _result(
+                False,
+                "Windows",
+                f"A tarefa '{nome}' existe mas não pôde ser consultada; nada foi removido. "
+                + _output(consulta),
+            )
         partes.append(f"Tarefa '{nome}': já removida ou inexistente")
     wrapper = wrapper_path(home)
     try:
@@ -303,7 +342,12 @@ def _instalar_linux(blog_dir, node_bin, hh, mm):
 def _remover_linux():
     atual = _crontab_atual()
     if atual is None:
-        return _result(True, "Linux", "crontab não encontrado; nada a remover")
+        return _result(
+            False,
+            "Linux",
+            "Não foi possível ler o crontab (comando ausente no PATH ou erro de leitura); "
+            "confira com 'crontab -l' e apague a linha que termina em " + CRON_MARKER + ".",
+        )
     if not any(_linha_nossa(line) for line in atual.splitlines()):
         return _result(True, "Linux", "Agendamento blog-daily: já removido")
     ok, saida = _gravar_crontab(_sem_marcador(atual))
