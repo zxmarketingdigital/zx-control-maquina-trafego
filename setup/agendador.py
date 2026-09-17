@@ -520,9 +520,19 @@ def _status_linux():
 # ---------------------------------------------------------------- API
 
 def _absoluto(caminho):
-    # is_absolute nos dois estilos: rodando no Unix, os.path.abspath prefixaria o cwd
-    # a um caminho do Windows (C:\...), inventando um caminho que não existe.
-    if PureWindowsPath(caminho).is_absolute() or PurePosixPath(caminho).is_absolute():
+    """Caminho que continua valendo quando a tarefa roda de outro diretório.
+
+    No Windows quem decide é PureWindowsPath: "/nodejs/node.exe" é enraizado mas
+    NÃO tem unidade, e resolveria para a unidade corrente do processo — a tarefa
+    diária começa em outra e o node some. abspath fixa a unidade.
+    Fora do Windows, um caminho no estilo do Windows (C:\...) é devolvido intacto:
+    abspath prefixaria o cwd e inventaria um caminho que não existe.
+    """
+    if os.name == "nt":
+        if PureWindowsPath(caminho).is_absolute():
+            return caminho
+        return os.path.abspath(caminho)
+    if PurePosixPath(caminho).is_absolute() or PureWindowsPath(caminho).is_absolute():
         return caminho
     return os.path.abspath(caminho)
 

@@ -487,6 +487,23 @@ class AgendadorProtecoesTest(unittest.TestCase):
         self.assertFalse(r["ok"], r)
         self.assertIn("Node não foi encontrado", r["detalhe"])
 
+    def test_caminho_sem_unidade_recebe_a_unidade_no_windows(self):
+        """No Windows "/nodejs/node.exe" é enraizado mas sem unidade: resolveria para a
+        unidade corrente do processo, e a tarefa diária roda a partir de outra."""
+        with mock.patch.object(agendador.os, "name", "nt"), \
+                mock.patch.object(agendador.os.path, "abspath",
+                                  return_value=r"D:\nodejs\node.exe") as fixou:
+            self.assertEqual(agendador._absoluto("/nodejs/node.exe"), r"D:\nodejs\node.exe")
+            fixou.assert_called_once_with("/nodejs/node.exe")
+            # com unidade (ou UNC) o caminho já está completo e não é tocado
+            self.assertEqual(agendador._absoluto(r"C:\nodejs\node.exe"), r"C:\nodejs\node.exe")
+            unc = "\\\\servidor\\bin\\node.exe"
+            self.assertEqual(agendador._absoluto(unc), unc)
+        # fora do Windows, caminho do Windows continua intacto e o POSIX absoluto também
+        if os.name != "nt":
+            self.assertEqual(agendador._absoluto(r"C:\nodejs\node.exe"), r"C:\nodejs\node.exe")
+            self.assertEqual(agendador._absoluto("/usr/bin/node"), "/usr/bin/node")
+
     @unittest.skipIf(os.name == "nt", "no Windows quem decide é a extensão, não o bit de execução")
     def test_node_sem_permissao_de_execucao_nao_mexe_no_agendamento(self):
         node = self.base / "node"
