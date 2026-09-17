@@ -37,6 +37,19 @@ def _node_sempre_executavel(test):
     test.addCleanup(patch.stop)
 
 
+def _chamada(chamadas, *prefixo):
+    """Pega a chamada pelo COMEÇO dos argumentos, nunca pela posição na lista.
+
+    O runner do CI (Linux/macOS) tem pwsh no PATH, então a instalação do Windows
+    dispara também o Set-ScheduledTask de bateria e a última chamada deixa de ser
+    o schtasks. Selecionar por conteúdo mantém o teste igual nos três sistemas.
+    """
+    alvo = list(prefixo)
+    achadas = [list(c) for c in chamadas if list(c)[:len(alvo)] == alvo]
+    assert len(achadas) == 1, "esperava 1 chamada %s, achei %d em %r" % (alvo, len(achadas), chamadas)
+    return achadas[0]
+
+
 def _proc(args, returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
@@ -74,8 +87,7 @@ class AgendadorWindowsTest(unittest.TestCase):
         # % dobrado para não virar variável do cmd
         self.assertIn("blog 100%%", conteudo)
         self.assertIn(r'"C:\Program Files\nodejs\node.exe" "generator\daily_publish.js"', conteudo)
-        cria = self.chamadas[-1]
-        self.assertEqual(cria[:2], ["schtasks", "/Create"])
+        cria = _chamada(self.chamadas, "schtasks", "/Create")
         self.assertIn(agendador.windows_task_name(), cria)
         self.assertEqual(cria[cria.index("/ST") + 1], "07:05")
         self.assertEqual(cria[cria.index("/TR") + 1], '"' + str(wrapper) + '"')
@@ -88,7 +100,7 @@ class AgendadorWindowsTest(unittest.TestCase):
         r = agendador.remover(sistema="Windows", home=self.home)
         self.assertTrue(r["ok"], r)
         self.assertFalse(agendador.wrapper_path(self.home).exists())
-        self.assertEqual(self.chamadas[-1][:2], ["schtasks", "/Delete"])
+        _chamada(self.chamadas, "schtasks", "/Delete")
 
     def test_delete_negado_preserva_wrapper(self):
         agendador.instalar(blog_dir=self.blog, node_bin=r"C:\nodejs\node.exe", sistema="Windows", home=self.home)
