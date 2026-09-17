@@ -204,12 +204,16 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
     matches = [line for line in _output(listed).splitlines() if _label_carregado(line)]
     if matches:
         return _result(True, "Darwin", f"LaunchAgent instalado em {target}.\n" + "\n".join(matches))
+    # load pode sair 0 sem carregar (job desabilitado por launchctl disable):
+    # sem o label na lista, a instalação não vale e o plist anterior volta.
+    recuperado = _restaurar_plist(target, anterior)
+    extra = " O plist anterior foi restaurado e recarregado." if recuperado else ""
     return _result(
         False,
         "Darwin",
         f"LaunchAgent gravado em {target}, mas o launchctl não carregou o job "
         f"(confira com: launchctl list | grep {LABEL}; se estiver desabilitado, "
-        f"launchctl enable gui/$(id -u)/{LABEL}).",
+        f"launchctl enable gui/$(id -u)/{LABEL})." + extra,
     )
 
 
@@ -497,16 +501,36 @@ def _status_linux():
 
 # ---------------------------------------------------------------- API
 
+def _absoluto(caminho):
+    # is_absolute nos dois estilos: rodando no Unix, os.path.abspath prefixaria o cwd
+    # a um caminho do Windows (C:\...), inventando um caminho que não existe.
+    if PureWindowsPath(caminho).is_absolute() or PurePosixPath(caminho).is_absolute():
+        return caminho
+    return os.path.abspath(caminho)
+
+
 def _resolver_node(node_bin):
     """Caminho do node que continua válido quando a tarefa roda em outro diretório."""
     if not node_bin:
-        return shutil.which("node")
-    node = os.path.expanduser(str(node_bin))
-    if not any(sep in node for sep in ("/", "\\")):
-        return shutil.which(node)
-    if PureWindowsPath(node).is_absolute() or PurePosixPath(node).is_absolute():
-        return node
-    return os.path.abspath(node)
+        achado = shutil.which("node")
+    else:
+        node = os.path.expanduser(str(node_bin))
+        if not any(sep in node for sep in ("/", "\\")):
+            # which devolve o caminho como está no PATH: uma entrada relativa
+            # (./bin) voltaria relativa e o agendador não acharia o node.
+            achado = shutil.which(node)
+        else:
+            achado = node
+    return _absoluto(achado) if achado else achado
+
+
+def _node_executavel(node):
+    """No Windows quem decide é a extensão; no Unix, o bit de execução."""
+    if not os.path.isfile(node):
+        return False
+    if os.name == "nt":
+        return True
+    return os.access(node, os.X_OK)
 
 
 def instalar(
@@ -533,6 +557,14 @@ def instalar(
     node = _resolver_node(node_bin)
     if not node:
         return _result(False, so, f"Node não foi encontrado ({node_bin or 'node'}); não foi possível agendar.")
+    if not _node_executavel(node):
+        # Antes de tocar no agendamento: um node sem permissão de execução trocaria
+        # uma tarefa que funciona por outra que falha todo dia.
+        return _result(
+            False,
+            so,
+            f"{node} não é um arquivo executável; o agendamento atual não foi alterado.",
+        )
     try:
         (blog / "logs").mkdir(parents=True, exist_ok=True)
         if so == "Darwin":

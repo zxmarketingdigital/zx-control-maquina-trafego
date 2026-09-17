@@ -28,12 +28,22 @@ def _load(nome, caminho):
     return modulo
 
 
+def _node_sempre_executavel(test):
+    """Os testes usam caminhos de node fictícios (inclusive do Windows); a checagem
+    real do bit de execução tem classe própria."""
+    test.node_executavel_real = agendador._node_executavel
+    patch = mock.patch.object(agendador, "_node_executavel", return_value=True)
+    patch.start()
+    test.addCleanup(patch.stop)
+
+
 def _proc(args, returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
 
 class AgendadorWindowsTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name) / "home"
         self.blog = Path(self.tmp.name) / "blog 100%"
@@ -154,6 +164,7 @@ class AgendadorWindowsTest(unittest.TestCase):
 
 class AgendadorLinuxTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.blog = Path(self.tmp.name) / "blog"
         self.crontab = (
@@ -269,6 +280,7 @@ class CrontabAtualTest(unittest.TestCase):
 
 class AgendadorDarwinRemoverTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.plist = agendador.plist_path(self.home)
@@ -337,6 +349,7 @@ class AgendadorLinuxCaminhoTest(AgendadorLinuxTest):
 
 class AgendadorDarwinInstalarTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.blog = self.home / "blog"
@@ -399,6 +412,7 @@ class AgendadorDarwinInstalarTest(unittest.TestCase):
 
 class AgendadorProtecoesTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
 
@@ -440,9 +454,25 @@ class AgendadorProtecoesTest(unittest.TestCase):
         self.assertTrue(os.path.isabs(resolvido))
         self.assertEqual(resolvido, esperado)
         self.assertEqual(agendador._resolver_node(r"C:\nodejs\node.exe"), r"C:\nodejs\node.exe")
+        with mock.patch.object(agendador.shutil, "which", return_value="./bin/node"):
+            self.assertEqual(agendador._resolver_node("node"),
+                             os.path.join(os.getcwd(), "bin", "node"))
         with mock.patch.object(agendador.shutil, "which", return_value=None):
             r = agendador.instalar(blog_dir=self.base / "blog", node_bin="node", sistema="Linux")
         self.assertFalse(r["ok"], r)
+
+    def test_node_sem_permissao_de_execucao_nao_mexe_no_agendamento(self):
+        node = self.base / "node"
+        node.write_text("#!/bin/sh\n", encoding="utf-8")
+        node.chmod(0o644)
+        with mock.patch.object(agendador, "_node_executavel", self.node_executavel_real), \
+                mock.patch.object(agendador, "_run", side_effect=AssertionError("não devia agendar")):
+            r = agendador.instalar(blog_dir=self.base / "blog", node_bin=str(node), sistema="Linux")
+        self.assertFalse(r["ok"], r)
+        self.assertIn("executável", r["detalhe"])
+        node.chmod(0o755)
+        self.assertTrue(self.node_executavel_real(str(node)))
+        self.assertFalse(self.node_executavel_real(str(self.base)))
 
     def test_windows_home_com_percentual_recusa_sem_tocar_em_nada(self):
         home = self.base / "%USERNAME%"
@@ -472,6 +502,7 @@ class AgendadorProtecoesTest(unittest.TestCase):
 
 class AgendadorWindowsCondicoesTest(unittest.TestCase):
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.chamadas = []
@@ -531,6 +562,7 @@ class AgendadorRollbackTest(unittest.TestCase):
     """Uma instalação frustrada não pode derrubar o agendamento que já funcionava."""
 
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.plist = agendador.plist_path(self.home)
@@ -585,6 +617,7 @@ class AgendadorCronSeparadorTest(unittest.TestCase):
     """O crontab separa registros só por LF: U+2028 num caminho não pode virar linha nova."""
 
     def setUp(self):
+        _node_sempre_executavel(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.blog = Path(self.tmp.name) / "blog\u2028novo"
         self.crontab = "0 5 * * * /usr/bin/backup.sh\n"
