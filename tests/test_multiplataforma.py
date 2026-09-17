@@ -439,6 +439,19 @@ class AgendadorProtecoesTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
 
+    @unittest.skipIf(os.name == "nt", "o Windows não deixa apagar o diretório corrente")
+    def test_cwd_apagado_vira_ok_false_e_nao_estoura(self):
+        """abspath consulta o cwd. Com o diretório corrente apagado o OSError subia
+        cru pela API em vez de virar o dict {"ok": False} que os chamadores tratam."""
+        morto = tempfile.mkdtemp()
+        origem = os.getcwd()
+        os.chdir(morto)
+        self.addCleanup(os.chdir, origem)
+        os.rmdir(morto)
+        r = agendador.instalar(blog_dir="blog", node_bin="/usr/bin/node", sistema="Darwin")
+        self.assertFalse(r["ok"], r)
+        self.assertIn("Não foi possível agendar", r["detalhe"])
+
     def tearDown(self):
         self.tmp.cleanup()
 
@@ -671,6 +684,22 @@ class AgendadorRollbackTest(unittest.TestCase):
         modo = self.plist.stat().st_mode & 0o777
         self.assertEqual(modo, 0o644, oct(modo))
         self.assertFalse(list(self.plist.parent.glob("*.tmp")))
+
+    @unittest.skipIf(os.name == "nt", "symlink no Windows exige Modo de Desenvolvedor")
+    def test_temporario_nao_segue_symlink_deixado_no_caminho(self):
+        """Com nome fixo ".tmp", um symlink preexistente com esse nome fazia o O_TRUNC
+        escrever no ALVO do link — o plist ia embora junto com o arquivo apontado."""
+        sentinela = self.plist.parent / "sentinela.txt"
+        sentinela.write_bytes(b"conteudo original")
+        armadilha = self.plist.with_name(self.plist.name + ".tmp")
+        os.symlink(str(sentinela), str(armadilha))
+        self.addCleanup(lambda: armadilha.is_symlink() and armadilha.unlink())
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(sentinela.read_bytes(), b"conteudo original")
+        # o plist real tem que ser arquivo comum, nunca o symlink movido pra cima dele
+        self.assertFalse(self.plist.is_symlink())
+        self.assertIn(b"<plist", self.plist.read_bytes())
 
 
 @SO_CRON

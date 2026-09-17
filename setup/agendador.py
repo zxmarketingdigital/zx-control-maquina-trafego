@@ -17,6 +17,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
@@ -118,25 +119,30 @@ def _parse_hora(hora):
 def _gravar_atomico(path, conteudo, modo=0o644):
     """Grava trocando o arquivo de uma vez, com o modo explícito.
 
-    O temporário nasce 0600 e só depois recebe `modo`: deixar o umask decidir
-    criaria um plist gravável pelo grupo (umask 0002 dá 0664) e o launchd recusa
-    carregar um plist assim — inclusive na restauração, que usaria a mesma
+    O temporário nasce por mkstemp: nome imprevisível e criação exclusiva
+    (O_CREAT|O_EXCL), no mesmo diretório do destino para o os.replace continuar
+    atômico. Um nome fixo ".tmp" era duas falhas: se alguém deixasse um symlink
+    com esse nome, o O_TRUNC seguia o link e truncava o arquivo apontado; e duas
+    instalações ao mesmo tempo escreviam no mesmo temporário.
+
+    O arquivo nasce 0600 (mkstemp) e só depois recebe `modo`: deixar o umask
+    decidir criaria um plist gravável pelo grupo (umask 0002 dá 0664) e o launchd
+    recusa carregar um plist assim — inclusive na restauração, que usaria a mesma
     rotina e deixaria o agendamento anterior sem voltar.
     """
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd, tmp_nome = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as saida:
             saida.write(conteudo)
+        if os.name != "nt":
+            os.chmod(tmp_nome, modo)
+        os.replace(tmp_nome, str(path))
     except Exception:
         try:
-            os.unlink(str(tmp))
+            os.unlink(tmp_nome)
         except OSError:
             pass
         raise
-    if os.name != "nt":
-        os.chmod(str(tmp), modo)
-    os.replace(str(tmp), str(path))
 
 
 def _restaurar_plist(target, anterior):
@@ -525,7 +531,7 @@ def _absoluto(caminho):
     No Windows quem decide é PureWindowsPath: "/nodejs/node.exe" é enraizado mas
     NÃO tem unidade, e resolveria para a unidade corrente do processo — a tarefa
     diária começa em outra e o node some. abspath fixa a unidade.
-    Fora do Windows, um caminho no estilo do Windows (C:\...) é devolvido intacto:
+    Fora do Windows, um caminho no estilo do Windows (C:\\...) é devolvido intacto:
     abspath prefixaria o cwd e inventaria um caminho que não existe.
     """
     if os.name == "nt":
@@ -574,26 +580,28 @@ def instalar(
     if parsed is None:
         return _result(False, so, f"Hora inválida: {hora!r} (use HH:MM)")
     hh, mm = parsed
-    # Caminho absoluto: o agendador roda a partir de outro diretório.
-    blog = Path(os.path.abspath(str(Path(blog_dir).expanduser()))) if blog_dir else BLOG_DIR
     if so not in ("Darwin", "Windows", "Linux"):
         return _result(
             False,
             so,
             f"Sistema {so} sem agendador suportado. Rode manualmente: node blog/generator/daily_publish.js",
         )
-    node = _resolver_node(node_bin)
-    if not node:
-        return _result(False, so, f"Node não foi encontrado ({node_bin or 'node'}); não foi possível agendar.")
-    if not _node_executavel(node):
-        # Antes de tocar no agendamento: um node sem permissão de execução trocaria
-        # uma tarefa que funciona por outra que falha todo dia.
-        return _result(
-            False,
-            so,
-            f"{node} não é um arquivo executável; o agendamento atual não foi alterado.",
-        )
+    # A preparação entra no try junto com a instalação: abspath consulta o cwd, e um
+    # cwd apagado faz o FileNotFoundError escapar da API em vez de virar ok=False.
     try:
+        # Caminho absoluto: o agendador roda a partir de outro diretório.
+        blog = Path(os.path.abspath(str(Path(blog_dir).expanduser()))) if blog_dir else BLOG_DIR
+        node = _resolver_node(node_bin)
+        if not node:
+            return _result(False, so, f"Node não foi encontrado ({node_bin or 'node'}); não foi possível agendar.")
+        if not _node_executavel(node):
+            # Antes de tocar no agendamento: um node sem permissão de execução trocaria
+            # uma tarefa que funciona por outra que falha todo dia.
+            return _result(
+                False,
+                so,
+                f"{node} não é um arquivo executável; o agendamento atual não foi alterado.",
+            )
         (blog / "logs").mkdir(parents=True, exist_ok=True)
         if so == "Darwin":
             return _instalar_darwin(blog, node, hh, mm, home)
