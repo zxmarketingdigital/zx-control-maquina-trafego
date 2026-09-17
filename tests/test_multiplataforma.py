@@ -465,6 +465,63 @@ class AgendadorProtecoesTest(unittest.TestCase):
         self.assertFalse(wrapper.exists())
 
 
+class AgendadorWindowsCondicoesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.chamadas = []
+        self.ps_rc = 0
+
+        def fake_run(args, input_text=None):
+            self.chamadas.append(args)
+            if "powershell" in args[0]:
+                return _proc(args, returncode=self.ps_rc, stderr="sem modulo")
+            return _proc(args)
+
+        self.patch_run = mock.patch.object(agendador, "_run", side_effect=fake_run)
+        self.patch_run.start()
+        self.patch_which = mock.patch.object(
+            agendador.shutil, "which",
+            side_effect=lambda nome: r"C:\\Windows\\powershell.exe" if nome in ("powershell", "pwsh") else nome,
+        )
+        self.patch_which.start()
+
+    def tearDown(self):
+        self.patch_which.stop()
+        self.patch_run.stop()
+        self.tmp.cleanup()
+
+    def _instalar(self):
+        return agendador.instalar(blog_dir=self.home / "blog", node_bin=r"C:\\nodejs\\node.exe",
+                                  sistema="Windows", home=self.home)
+
+    def test_wrapper_desliga_expansao_atrasada(self):
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        linhas = agendador.wrapper_path(self.home).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(linhas[1].lower(), "setlocal enableextensions disabledelayedexpansion")
+        primeiro_pushd = next(i for i, l in enumerate(linhas) if l.startswith("pushd "))
+        self.assertLess(1, primeiro_pushd)
+
+    def test_libera_execucao_na_bateria(self):
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        ps = [a for a in self.chamadas if "powershell" in a[0]]
+        self.assertEqual(len(ps), 1, self.chamadas)
+        comando = ps[0][-1]
+        self.assertIn("-AllowStartIfOnBatteries", comando)
+        self.assertIn("-DontStopIfGoingOnBatteries", comando)
+        self.assertIn(agendador.windows_task_name(), comando)
+        self.assertNotIn("bateria", r["detalhe"])
+
+    def test_powershell_falho_nao_derruba_instalacao(self):
+        self.ps_rc = 1
+        r = self._instalar()
+        self.assertTrue(r["ok"], r)
+        self.assertIn("bateria", r["detalhe"])
+        self.assertTrue(agendador.wrapper_path(self.home).exists())
+
+
 class AgendadorSemSuporteTest(unittest.TestCase):
     def test_sistema_desconhecido_nao_lanca(self):
         with tempfile.TemporaryDirectory() as tmp:

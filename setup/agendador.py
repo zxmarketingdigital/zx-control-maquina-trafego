@@ -238,6 +238,9 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
     blog = Path(blog_dir)
     linhas = [
         "@echo off",
+        # Sem DisableDelayedExpansion, o cmd.exe come o "!" de caminhos como D:\Aulas!\blog
+        # quando a expansão atrasada está ligada no registro do usuário.
+        "setlocal EnableExtensions DisableDelayedExpansion",
         "chcp 65001 >nul",
         # pushd aceita caminho de rede (\\servidor\pasta), que o cd /d recusa;
         # se a pasta não abrir, a tarefa para em vez de rodar no diretório errado.
@@ -266,12 +269,34 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
         if proc is None:
             return _result(False, "Windows", "Não foi possível executar o schtasks.")
         return _result(False, "Windows", "schtasks recusou a criação: " + _output(proc))
-    return _result(
-        True,
-        "Windows",
+    detalhe = (
         f"Tarefa '{windows_task_name()}' criada no Agendador de Tarefas "
-        f"(todo dia às {hh:02d}:{mm:02d}), executando {wrapper}.",
+        f"(todo dia às {hh:02d}:{mm:02d}), executando {wrapper}."
     )
+    if not _liberar_bateria_windows():
+        # A tarefa existe e roda na tomada; só o caso "notebook na bateria" fica de fora.
+        detalhe += (
+            " Aviso: não foi possível liberar a execução na bateria. Em notebook fora da "
+            "tomada o Windows pode pular o horário — em Agendador de Tarefas > Condições, "
+            "desmarque 'Iniciar a tarefa somente se o computador estiver na rede elétrica'."
+        )
+    return _result(True, "Windows", detalhe)
+
+
+def _liberar_bateria_windows():
+    """schtasks /Create nasce com DisallowStartIfOnBatteries; o Agendador então pula o
+    horário em notebook fora da tomada. Só o módulo ScheduledTasks do PowerShell muda isso.
+    Falha aqui não derruba a instalação: a tarefa já existe e roda na rede elétrica."""
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
+        return False
+    proc = _run([
+        powershell, "-NoProfile", "-NonInteractive", "-Command",
+        "Set-ScheduledTask -TaskName '%s' -Settings (New-ScheduledTaskSettingsSet "
+        "-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable)"
+        % windows_task_name(),
+    ])
+    return proc is not None and proc.returncode == 0
 
 
 def _remover_windows(home):
