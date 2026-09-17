@@ -237,12 +237,34 @@ class CrontabAtualTest(unittest.TestCase):
     def test_instalar_com_crontab_ilegivel_aborta_com_mensagem_clara(self):
         # Chamador ponta-a-ponta: erro genérico do "crontab -l" não pode virar
         # gravação de crontab só com a nossa linha (perda dos agendamentos do
-        # usuário) nem lançar traceback cru — tem que devolver ok=False com detalhe.
-        with self._com_run(1, stderr="crontab: spool ilegível\n"):
+        # usuário) nem lançar traceback cru — tem que devolver ok=False com detalhe
+        # que fale da LEITURA (não de uma falha de escrita disfarçada).
+        #
+        # 🔴 luna-review (17/09): a versão anterior mockava `_run` com
+        # `return_value` fixo, então uma regressão que reintroduzisse o bug
+        # (tratar rc!=0 como vazio e seguir para `crontab -` de gravação)
+        # também bateria em returncode=1 e passaria — ok=False vindo da
+        # ESCRITA, não do abort esperado na LEITURA. Corrigido: side_effect
+        # que registra as chamadas e falha o teste se "crontab -" (gravação)
+        # for invocado.
+        chamadas = []
+
+        def fake_run(args, input_text=None):
+            chamadas.append(list(args))
+            if args == ["crontab", "-"]:
+                # Nenhuma gravação pode acontecer depois de leitura ilegível.
+                return _proc(args, returncode=0)
+            return _proc(args, returncode=1, stderr="crontab: spool ilegível\n")
+
+        with mock.patch.object(agendador, "_run", side_effect=fake_run):
             r = agendador.instalar(sistema="Linux", blog_dir=Path("/tmp/blog"), node_bin="node")
+
         self.assertFalse(r["ok"], r)
         self.assertIsInstance(r["detalhe"], str)
         self.assertNotIn("Traceback", r["detalhe"])
+        self.assertIn("crontab", r["detalhe"].lower())
+        self.assertIn(["crontab", "-l"], chamadas)
+        self.assertNotIn(["crontab", "-"], chamadas)
 
 
 class AgendadorDarwinRemoverTest(unittest.TestCase):
