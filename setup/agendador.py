@@ -8,6 +8,9 @@
 Todas as funções devolvem {"ok": bool, "sistema": str, "detalhe": str} e nunca
 lançam exceção por causa do sistema operacional.
 """
+import getpass
+import hashlib
+import os
 import platform
 import re
 import shlex
@@ -21,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BLOG_DIR = ROOT / "blog"
 PLIST_TEMPLATE = ROOT / "launchagents" / "com.setup15.blog-daily.plist.template"
 LABEL = "com.setup15.blog-daily"
-WINDOWS_TASK = "ZXSetup15BlogDaily"
+WINDOWS_TASK = "ZXSetup15BlogDaily"  # prefixo; o nome real é por usuário (windows_task_name)
 CRON_MARKER = "# zx-setup15-blog-daily"
 # Comandos de sistema curtos (launchctl/schtasks/crontab): 30s é folga ampla.
 CMD_TIMEOUT = 30
@@ -41,6 +44,19 @@ def plist_path(home=None):
 
 def wrapper_path(home=None):
     return _home(home) / ".operacao-ia" / "bin" / "blog-daily.cmd"
+
+
+def windows_task_name(usuario=None):
+    """Nome da tarefa no Agendador, único por usuário do Windows.
+
+    O Agendador tem um espaço de nomes da máquina inteira: com um nome fixo, o
+    segundo aluno do mesmo computador falharia (ou sobrescreveria a tarefa do primeiro).
+    """
+    if usuario is None:
+        usuario = os.environ.get("USERNAME") or getpass.getuser()
+    limpo = re.sub(r"[^A-Za-z0-9_-]", "_", usuario)[:30] or "usuario"
+    sufixo = hashlib.sha1(usuario.encode("utf-8")).hexdigest()[:6]
+    return f"{WINDOWS_TASK}-{limpo}-{sufixo}"
 
 
 def _result(ok, sistema, detalhe):
@@ -105,15 +121,21 @@ def _instalar_darwin(blog_dir, node_bin, hh, mm, home):
     target.write_text(plist, encoding="utf-8")
     _run(["launchctl", "load", str(target)])
     listed = _run(["launchctl", "list"])
-    matches = [line for line in _output(listed).splitlines() if LABEL in line]
+    matches = [line for line in _output(listed).splitlines() if _label_carregado(line)]
     if matches:
-        detalhe = f"LaunchAgent instalado em {target}.\n" + "\n".join(matches)
-    else:
-        detalhe = (
-            f"LaunchAgent gravado em {target}, mas o label ainda não apareceu em "
-            "'launchctl list'; confira o status do launchctl."
-        )
-    return _result(True, "Darwin", detalhe)
+        return _result(True, "Darwin", f"LaunchAgent instalado em {target}.\n" + "\n".join(matches))
+    return _result(
+        False,
+        "Darwin",
+        f"LaunchAgent gravado em {target}, mas o launchctl não carregou o job "
+        f"(confira com: launchctl list | grep {LABEL}; se estiver desabilitado, "
+        f"launchctl enable gui/$(id -u)/{LABEL}).",
+    )
+
+
+def _label_carregado(line):
+    campos = line.split()
+    return bool(campos) and campos[-1] == LABEL
 
 
 def _remover_darwin(home):
@@ -134,7 +156,7 @@ def _remover_darwin(home):
 def _status_darwin(home):
     target = plist_path(home)
     listed = _run(["launchctl", "list"])
-    carregado = any(LABEL in line for line in _output(listed).splitlines())
+    carregado = any(_label_carregado(line) for line in _output(listed).splitlines())
     return _result(
         target.exists() and carregado,
         "Darwin",
@@ -165,7 +187,7 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
     ]
     wrapper.write_text("\r\n".join(linhas), encoding="utf-8")
     proc = _run([
-        "schtasks", "/Create", "/SC", "DAILY", "/TN", WINDOWS_TASK,
+        "schtasks", "/Create", "/SC", "DAILY", "/TN", windows_task_name(),
         "/TR", '"' + str(wrapper) + '"',
         "/ST", "%02d:%02d" % (hh, mm), "/F",
     ])
@@ -176,18 +198,29 @@ def _instalar_windows(blog_dir, node_bin, hh, mm, home):
     return _result(
         True,
         "Windows",
-        f"Tarefa '{WINDOWS_TASK}' criada no Agendador de Tarefas "
+        f"Tarefa '{windows_task_name()}' criada no Agendador de Tarefas "
         f"(todo dia às {hh:02d}:{mm:02d}), executando {wrapper}.",
     )
 
 
 def _remover_windows(home):
-    proc = _run(["schtasks", "/Delete", "/TN", WINDOWS_TASK, "/F"])
+    nome = windows_task_name()
+    consulta = _run(["schtasks", "/Query", "/TN", nome])
+    if consulta is None:
+        return _result(False, "Windows", "Não foi possível executar o schtasks; nada foi removido.")
     partes = []
-    if proc is not None and proc.returncode == 0:
-        partes.append(f"Tarefa '{WINDOWS_TASK}' removida")
+    if consulta.returncode == 0:
+        proc = _run(["schtasks", "/Delete", "/TN", nome, "/F"])
+        if proc is None or proc.returncode != 0:
+            # O wrapper fica: apagá-lo deixaria a tarefa apontando para um arquivo inexistente.
+            return _result(
+                False,
+                "Windows",
+                f"schtasks não removeu a tarefa '{nome}': {_output(proc)}",
+            )
+        partes.append(f"Tarefa '{nome}' removida")
     else:
-        partes.append(f"Tarefa '{WINDOWS_TASK}': já removida ou inexistente")
+        partes.append(f"Tarefa '{nome}': já removida ou inexistente")
     wrapper = wrapper_path(home)
     try:
         if wrapper.exists():
@@ -199,12 +232,13 @@ def _remover_windows(home):
 
 
 def _status_windows(home):
-    proc = _run(["schtasks", "/Query", "/TN", WINDOWS_TASK])
+    nome = windows_task_name()
+    proc = _run(["schtasks", "/Query", "/TN", nome])
     existe = proc is not None and proc.returncode == 0
     return _result(
         existe,
         "Windows",
-        _output(proc) if existe else f"Tarefa '{WINDOWS_TASK}' não encontrada",
+        _output(proc) if existe else f"Tarefa '{nome}' não encontrada",
     )
 
 
@@ -217,13 +251,24 @@ def _crontab_atual():
     if proc is None:
         return None
     if proc.returncode != 0:
-        # "no crontab for <user>" = crontab vazio
-        return ""
+        # Só "no crontab for <user>" significa crontab vazio. Qualquer outra
+        # falha (spool ilegível/corrompido, permissão, erro transitório do
+        # cron) tem que abortar — nunca virar "" e sobrescrever os
+        # agendamentos existentes do usuário.
+        if "no crontab for" in _output(proc).lower():
+            return ""
+        return None
     return proc.stdout or ""
 
 
+def _linha_nossa(line):
+    # Só o marcador completo no FIM da linha; "# zx-setup15-blog-daily-backup" é de outra tarefa.
+    texto = line.rstrip()
+    return texto == CRON_MARKER or texto.endswith(" " + CRON_MARKER)
+
+
 def _sem_marcador(texto):
-    return [line for line in texto.splitlines() if CRON_MARKER not in line]
+    return [line for line in texto.splitlines() if not _linha_nossa(line)]
 
 
 def _gravar_crontab(linhas):
@@ -259,7 +304,7 @@ def _remover_linux():
     atual = _crontab_atual()
     if atual is None:
         return _result(True, "Linux", "crontab não encontrado; nada a remover")
-    if CRON_MARKER not in atual:
+    if not any(_linha_nossa(line) for line in atual.splitlines()):
         return _result(True, "Linux", "Agendamento blog-daily: já removido")
     ok, saida = _gravar_crontab(_sem_marcador(atual))
     if not ok:
@@ -269,7 +314,7 @@ def _remover_linux():
 
 def _status_linux():
     atual = _crontab_atual()
-    existe = bool(atual) and CRON_MARKER in atual
+    existe = bool(atual) and any(_linha_nossa(line) for line in atual.splitlines())
     return _result(existe, "Linux", "linha presente no crontab" if existe else "sem linha no crontab")
 
 

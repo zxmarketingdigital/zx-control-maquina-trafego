@@ -66,7 +66,7 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertIn(r'"C:\Program Files\nodejs\node.exe" "generator\daily_publish.js"', conteudo)
         cria = self.chamadas[-1]
         self.assertEqual(cria[:2], ["schtasks", "/Create"])
-        self.assertIn(agendador.WINDOWS_TASK, cria)
+        self.assertIn(agendador.windows_task_name(), cria)
         self.assertEqual(cria[cria.index("/ST") + 1], "07:05")
         self.assertEqual(cria[cria.index("/TR") + 1], '"' + str(wrapper) + '"')
         # nenhuma chamada exclusiva do macOS
@@ -79,6 +79,27 @@ class AgendadorWindowsTest(unittest.TestCase):
         self.assertTrue(r["ok"], r)
         self.assertFalse(agendador.wrapper_path(self.home).exists())
         self.assertEqual(self.chamadas[-1][:2], ["schtasks", "/Delete"])
+
+    def test_delete_negado_preserva_wrapper(self):
+        agendador.instalar(blog_dir=self.blog, node_bin="node", sistema="Windows", home=self.home)
+        self.patch.stop()
+
+        def fake_run(args, input_text=None):
+            return _proc(args, returncode=1 if args[1] == "/Delete" else 0, stderr="Acesso negado.")
+
+        with mock.patch.object(agendador, "_run", side_effect=fake_run):
+            r = agendador.remover(sistema="Windows", home=self.home)
+        self.patch.start()
+        self.assertFalse(r["ok"], r)
+        self.assertTrue(agendador.wrapper_path(self.home).exists())
+
+    def test_nome_da_tarefa_e_por_usuario(self):
+        a = agendador.windows_task_name("Ana")
+        b = agendador.windows_task_name("Bruno")
+        self.assertNotEqual(a, b)
+        self.assertTrue(a.startswith(agendador.WINDOWS_TASK + "-Ana-"))
+        self.assertNotEqual(agendador.windows_task_name("João"), agendador.windows_task_name("Jo_o"))
+        self.assertRegex(agendador.windows_task_name("Ana&Leo Silva"), r"^[A-Za-z0-9_-]+$")
 
     def test_hora_invalida_nao_chama_nada(self):
         r = agendador.instalar(hora="25:00", blog_dir=self.blog, node_bin="node",
@@ -98,7 +119,10 @@ class AgendadorLinuxTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.blog = Path(self.tmp.name) / "blog"
-        self.crontab = "0 1 * * * echo outro\n"
+        self.crontab = (
+            "0 1 * * * echo outro\n"
+            "0 2 * * * echo backup # zx-setup15-blog-daily-backup\n"
+        )
 
         def fake_run(args, input_text=None):
             if args[:2] == ["crontab", "-l"]:
@@ -124,14 +148,49 @@ class AgendadorLinuxTest(unittest.TestCase):
         for _ in range(2):
             r = agendador.instalar(hora="08:30", blog_dir=self.blog, node_bin="/usr/bin/node", sistema="Linux")
             self.assertTrue(r["ok"], r)
-        self.assertEqual(self.crontab.count(agendador.CRON_MARKER), 1)
+        nossas = [l for l in self.crontab.splitlines() if agendador._linha_nossa(l)]
+        self.assertEqual(len(nossas), 1)
         self.assertIn("echo outro", self.crontab)
+        self.assertIn("zx-setup15-blog-daily-backup", self.crontab)
         self.assertIn("30 8 * * *", self.crontab)
         self.assertTrue(agendador.status(sistema="Linux")["ok"])
         r = agendador.remover(sistema="Linux")
         self.assertTrue(r["ok"], r)
-        self.assertNotIn(agendador.CRON_MARKER, self.crontab)
+        self.assertEqual(self.crontab.count(agendador.CRON_MARKER), 1)  # só a do backup
+        self.assertIn("zx-setup15-blog-daily-backup", self.crontab)
+        self.assertFalse(agendador.status(sistema="Linux")["ok"])
         self.assertIn("echo outro", self.crontab)
+
+
+class CrontabAtualTest(unittest.TestCase):
+    """_crontab_atual() só pode tratar como vazio o caso 'no crontab for <user>';
+    qualquer outro returncode != 0 tem que abortar (None), nunca sobrescrever
+    o crontab do usuário com só as nossas linhas."""
+
+    def setUp(self):
+        self.patches = [mock.patch.object(agendador.shutil, "which", return_value="/usr/bin/crontab")]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def _com_run(self, returncode, stdout="", stderr=""):
+        proc = _proc(["crontab", "-l"], returncode=returncode, stdout=stdout, stderr=stderr)
+        return mock.patch.object(agendador, "_run", return_value=proc)
+
+    def test_ok_devolve_conteudo(self):
+        with self._com_run(0, stdout="0 1 * * * echo oi\n"):
+            self.assertEqual(agendador._crontab_atual(), "0 1 * * * echo oi\n")
+
+    def test_no_crontab_for_vira_vazio(self):
+        with self._com_run(1, stderr="no crontab for rafael\n"):
+            self.assertEqual(agendador._crontab_atual(), "")
+
+    def test_erro_generico_aborta_sem_virar_vazio(self):
+        with self._com_run(1, stderr="crontab: spool ilegível\n"):
+            self.assertIsNone(agendador._crontab_atual())
 
 
 class AgendadorSemSuporteTest(unittest.TestCase):

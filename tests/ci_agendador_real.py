@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,7 +25,12 @@ def main():
         print(f"{so}: teste real só roda no Windows (launchd/cron exigem sessão de usuário).")
         return 0
     tmp = Path(tempfile.mkdtemp()) / "blog com espaço"
-    shutil.copytree(str(ROOT / "blog"), str(tmp))
+    (tmp / "generator").mkdir(parents=True)
+    sentinela = "SENTINELA-" + uuid.uuid4().hex
+    # Fixture mínima: prova que o wrapper .cmd rodou o node com o script certo, na pasta certa.
+    (tmp / "generator" / "daily_publish.js").write_text(
+        "console.log(%r + ' ' + process.cwd());\n" % sentinela, encoding="utf-8"
+    )
     home = Path(tempfile.mkdtemp())
     r = agendador.instalar(hora="23:59", blog_dir=tmp, sistema="Windows", home=home)
     print(r)
@@ -35,18 +41,24 @@ def main():
         print(st)
         if not st["ok"]:
             return 1
-        subprocess.run(["schtasks", "/Run", "/TN", agendador.WINDOWS_TASK], check=True)
-        logs = [tmp / "logs" / "blog-daily.log", tmp / "logs" / "blog-daily-err.log"]
+        subprocess.run(["schtasks", "/Run", "/TN", agendador.windows_task_name()], check=True)
+        log = tmp / "logs" / "blog-daily.log"
+        err = tmp / "logs" / "blog-daily-err.log"
         for _ in range(60):
-            if any(p.exists() and p.stat().st_size > 0 for p in logs):
+            texto = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+            if sentinela in texto:
                 break
             time.sleep(1)
         else:
-            print("A tarefa não gerou log em 60s — o wrapper .cmd não rodou.")
+            print("A tarefa não escreveu a sentinela em 60s — o wrapper .cmd não rodou o node.")
+            for p in (log, err):
+                if p.exists():
+                    print(f"--- {p.name}\n{p.read_text(encoding='utf-8', errors='replace')}")
             return 1
-        for p in logs:
-            if p.exists():
-                print(f"--- {p.name}\n{p.read_text(encoding='utf-8', errors='replace')}")
+        print(texto)
+        if "blog com espaço" not in texto:
+            print("O node não rodou dentro da pasta do blog.")
+            return 1
         return 0
     finally:
         rm = agendador.remover(sistema="Windows", home=home)

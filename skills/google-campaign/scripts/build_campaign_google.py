@@ -216,7 +216,8 @@ def _ledger_lock():
     ledger_path = Path(LEDGER_PATH)
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = ledger_path.with_name(f"{ledger_path.name}.lock")
-    with open(lock_path, "w", encoding="utf-8") as handle:
+    # "a" não trunca: no Windows, truncar um arquivo com região travada por outro processo falha.
+    with open(lock_path, "a", encoding="utf-8") as handle:
         if os.name == "nt":
             # LK_LOCK desiste depois de ~10s; o flock do Unix espera. Repetir ate conseguir.
             while True:
